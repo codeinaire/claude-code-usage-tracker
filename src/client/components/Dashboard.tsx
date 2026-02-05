@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import DateRangePicker from './DateRangePicker';
 import DailyStatsTable from './DailyStatsTable';
 import SessionList from './SessionList';
+import AggregatedStatsCard from './AggregatedStatsCard';
 
 interface Summary {
   inputTokens: number;
@@ -40,35 +41,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     color: '#666',
   },
-  cards: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '16px',
-    marginBottom: '32px',
-  },
-  card: {
-    background: 'white',
-    padding: '20px',
-    borderRadius: '8px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-  },
-  cardLabel: {
-    fontSize: '12px',
-    color: '#666',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
-    marginBottom: '4px',
-  },
-  cardValue: {
-    fontSize: '24px',
-    fontWeight: 600,
-    color: '#1a1a1a',
-  },
-  cardSubvalue: {
-    fontSize: '12px',
-    color: '#888',
-    marginTop: '4px',
-  },
   section: {
     marginBottom: '32px',
   },
@@ -88,20 +60,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
 };
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) {
-    return (n / 1_000_000).toFixed(2) + 'M';
-  }
-  if (n >= 1_000) {
-    return (n / 1_000).toFixed(1) + 'K';
-  }
-  return n.toLocaleString();
-}
-
-function formatCurrency(n: number): string {
-  return '$' + n.toFixed(2);
-}
-
 export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,6 +67,7 @@ export default function Dashboard() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -139,6 +98,7 @@ export default function Dashboard() {
         `Imported ${data.messagesImported} messages from ${data.sessionsImported} sessions`
       );
       await fetchSummary();
+      setRefreshKey((k) => k + 1);
     } catch (err) {
       setSyncStatus('Sync failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
@@ -168,50 +128,7 @@ export default function Dashboard() {
 
       {error && <div style={styles.error}>{error}</div>}
 
-      <div style={styles.cards}>
-        <div style={styles.card}>
-          <div style={styles.cardLabel}>Input Tokens</div>
-          <div style={styles.cardValue}>
-            {summary ? formatNumber(summary.inputTokens) : '-'}
-          </div>
-          <div style={styles.cardSubvalue}>Base input tokens</div>
-        </div>
-        <div style={styles.card}>
-          <div style={styles.cardLabel}>Cache Write Tokens</div>
-          <div style={styles.cardValue}>
-            {summary ? formatNumber(summary.cacheCreationTokens) : '-'}
-          </div>
-          <div style={styles.cardSubvalue}>125% of input price</div>
-        </div>
-        <div style={styles.card}>
-          <div style={styles.cardLabel}>Cache Read Tokens</div>
-          <div style={styles.cardValue}>
-            {summary ? formatNumber(summary.cacheReadTokens) : '-'}
-          </div>
-          <div style={styles.cardSubvalue}>10% of input price</div>
-        </div>
-        <div style={styles.card}>
-          <div style={styles.cardLabel}>Output Tokens</div>
-          <div style={styles.cardValue}>
-            {summary ? formatNumber(summary.outputTokens) : '-'}
-          </div>
-        </div>
-        <div style={styles.card}>
-          <div style={styles.cardLabel}>Estimated Cost</div>
-          <div style={styles.cardValue}>
-            {summary ? formatCurrency(summary.totalCostUsd) : '-'}
-          </div>
-        </div>
-        <div style={styles.card}>
-          <div style={styles.cardLabel}>Sessions</div>
-          <div style={styles.cardValue}>{summary?.sessionCount ?? '-'}</div>
-          {summary?.firstSession && summary?.lastSession && (
-            <div style={styles.cardSubvalue}>
-              {summary.firstSession} to {summary.lastSession}
-            </div>
-          )}
-        </div>
-      </div>
+      <AggregatedStatsCard summary={summary} />
 
       <div style={styles.section}>
         <DateRangePicker onChange={setDateRange} />
@@ -219,12 +136,12 @@ export default function Dashboard() {
 
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Daily Usage</h2>
-        <DailyStatsTable dateRange={dateRange} />
+        <DailyStatsTable dateRange={dateRange} refreshKey={refreshKey} />
       </div>
 
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Sessions</h2>
-        <SessionList dateRange={dateRange} />
+        <SessionList dateRange={dateRange} refreshKey={refreshKey} />
       </div>
     </div>
   );

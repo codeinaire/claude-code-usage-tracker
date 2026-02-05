@@ -13,6 +13,7 @@ interface DailyStats {
 
 interface DailyStatsTableProps {
   dateRange: { from: string; to: string } | null;
+  refreshKey?: number;
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -63,7 +64,7 @@ function formatCurrency(n: number): string {
   return '$' + n.toFixed(2);
 }
 
-export default function DailyStatsTable({ dateRange }: DailyStatsTableProps) {
+export default function DailyStatsTable({ dateRange, refreshKey }: DailyStatsTableProps) {
   const [data, setData] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -86,7 +87,7 @@ export default function DailyStatsTable({ dateRange }: DailyStatsTableProps) {
       }
     };
     fetchData();
-  }, [dateRange]);
+  }, [dateRange, refreshKey]);
 
   if (loading) {
     return <div style={styles.container}><div style={styles.empty}>Loading...</div></div>;

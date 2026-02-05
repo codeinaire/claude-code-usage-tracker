@@ -9,6 +9,7 @@ import {
   updateSyncState,
   clearSessionMessagesByExternalId,
   getSessionIdByExternalId,
+  cleanupOrphanedSubagentSessions,
   type Message,
 } from '../db/queries.js';
 
@@ -46,6 +47,19 @@ interface ParseResult {
   project: string | null;
 }
 
+export function isSubagentFile(filePath: string): boolean {
+  return filePath.includes(`${path.sep}subagents${path.sep}`) || filePath.includes('/subagents/');
+}
+
+export function extractParentSessionExternalId(filePath: string): string | null {
+  // Path format: .../{session-uuid}/subagents/agent-xxx.jsonl
+  // The parent session UUID is the directory two levels above the file
+  const parts = filePath.split(path.sep);
+  const subagentsIdx = parts.lastIndexOf('subagents');
+  if (subagentsIdx < 1) return null;
+  return parts[subagentsIdx - 1];
+}
+
 export function extractProjectFromPath(filePath: string): string | null {
   // Path format: ~/.claude/projects/{encoded-project-path}/{session-id}.jsonl
   const projectsDir = path.join(os.homedir(), '.claude', 'projects');
@@ -73,6 +87,7 @@ export function parseSessionFile(
 ): ParseResult {
   const sessionExternalId = extractSessionExternalIdFromPath(filePath);
   const project = extractProjectFromPath(filePath);
+  const isSubagent = isSubagentFile(filePath);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`File not found: ${filePath}`);
@@ -89,7 +104,7 @@ export function parseSessionFile(
       return { sessionExternalId, messagesImported: 0, project };
     }
   } else {
-    // Full sync - clear existing messages for this session
+    // Full sync - clear existing messages for this session/subagent
     clearSessionMessagesByExternalId(sessionExternalId);
   }
 
@@ -102,7 +117,6 @@ export function parseSessionFile(
   let sessionVersion: string | null = null;
 
   // Use a Map to deduplicate by message ID (streaming chunks have same ID)
-  // Store message external IDs temporarily, will resolve session ID after upsert
   const messageDataMap = new Map<string, {
     externalId: string;
     timestamp: string;
@@ -122,18 +136,20 @@ export function parseSessionFile(
         continue;
       }
 
-      // Extract session metadata from any message type
+      // Extract timestamps from any message type
+      if (parsed.timestamp) {
+        if (!firstTimestamp || parsed.timestamp < firstTimestamp) {
+          firstTimestamp = parsed.timestamp;
+        }
+        if (!lastTimestamp || parsed.timestamp > lastTimestamp) {
+          lastTimestamp = parsed.timestamp;
+        }
+      }
+
+      // Extract session metadata
       if (parsed.sessionId && parsed.sessionId === sessionExternalId) {
         if (parsed.version && !sessionVersion) {
           sessionVersion = parsed.version;
-        }
-        if (parsed.timestamp) {
-          if (!firstTimestamp || parsed.timestamp < firstTimestamp) {
-            firstTimestamp = parsed.timestamp;
-          }
-          if (!lastTimestamp || parsed.timestamp > lastTimestamp) {
-            lastTimestamp = parsed.timestamp;
-          }
         }
       }
 
@@ -145,8 +161,6 @@ export function parseSessionFile(
             sessionModel = msg.model;
           }
 
-          // Use message ID as key to deduplicate streaming chunks
-          // Later chunks overwrite earlier ones (they have the same or updated totals)
           messageDataMap.set(msg.id, {
             externalId: msg.id,
             timestamp: parsed.timestamp || new Date().toISOString(),
@@ -164,7 +178,54 @@ export function parseSessionFile(
     }
   }
 
-  // Upsert session and get the internal ID
+  if (isSubagent) {
+    // Route into subagents table
+    const parentExternalId = extractParentSessionExternalId(filePath);
+    if (!parentExternalId) {
+      throw new Error(`Cannot extract parent session ID from subagent file: ${filePath}`);
+    }
+
+    // Ensure the parent session exists (upsert with minimal data)
+    let parentSessionId = getSessionIdByExternalId(parentExternalId);
+    if (parentSessionId === null) {
+      parentSessionId = upsertSession({
+        externalId: parentExternalId,
+        project,
+        startTime: null,
+        endTime: null,
+        model: null,
+        version: null,
+      });
+    }
+
+    // Extract subagent type from filename (e.g., "agent-xxx" -> the full basename)
+    const subagentType = sessionModel || null;
+
+    // Upsert subagent and get the internal ID
+    const subagentId = upsertSubagent(
+      sessionExternalId,
+      parentSessionId,
+      subagentType,
+      firstTimestamp,
+      lastTimestamp
+    );
+
+    // Messages belong to the parent session but are tagged with the subagent
+    const messages: Message[] = Array.from(messageDataMap.values()).map((data) => ({
+      ...data,
+      sessionId: parentSessionId!,
+      subagentId,
+    }));
+
+    if (messages.length > 0) {
+      insertMessages(messages);
+    }
+
+    updateSyncState(filePath, stats.size);
+    return { sessionExternalId, messagesImported: messages.length, project };
+  }
+
+  // Regular session file
   const sessionId = upsertSession({
     externalId: sessionExternalId,
     project,
@@ -174,21 +235,17 @@ export function parseSessionFile(
     version: sessionVersion,
   });
 
-  // Convert message data to full Message objects with session ID
   const messages: Message[] = Array.from(messageDataMap.values()).map((data) => ({
     ...data,
     sessionId,
     subagentId: null,
   }));
 
-  // Insert messages
   if (messages.length > 0) {
     insertMessages(messages);
   }
 
-  // Update sync state
   updateSyncState(filePath, stats.size);
-
   return { sessionExternalId, messagesImported: messages.length, project };
 }
 
@@ -220,11 +277,22 @@ export function syncAllSessions(): {
   sessionsImported: number;
   messagesImported: number;
 } {
+  // Clean up orphaned session entries that were previously created for subagent files
+  cleanupOrphanedSubagentSessions();
+
   const files = findAllSessionFiles();
+
+  // Parse parent session files before subagent files so parent sessions exist
+  const sorted = [...files].sort((a, b) => {
+    const aIsSub = isSubagentFile(a) ? 1 : 0;
+    const bIsSub = isSubagentFile(b) ? 1 : 0;
+    return aIsSub - bIsSub;
+  });
+
   let totalMessages = 0;
   let totalSessions = 0;
 
-  for (const file of files) {
+  for (const file of sorted) {
     try {
       const result = parseSessionFile(file, false);
       if (result.messagesImported > 0) {

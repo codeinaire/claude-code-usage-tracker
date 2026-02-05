@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { getSessionStats, getDailyStats, getSummary } from '../db/queries.js';
+import { getSessionStats, getDailyStats, getSummary, getSubagentsBySessionId } from '../db/queries.js';
 
 const router = Router();
 
@@ -38,6 +38,24 @@ router.get('/summary', (_req: Request, res: Response) => {
     res.json(summary);
   } catch (error) {
     console.error('Get summary error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/stats/sessions/:id/subagents - Subagents for a session
+router.get('/sessions/:id/subagents', (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.id, 10);
+    if (isNaN(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+    const subagents = getSubagentsBySessionId(sessionId);
+    res.json({ subagents });
+  } catch (error) {
+    console.error('Get subagents error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
     });

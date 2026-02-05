@@ -1,34 +1,28 @@
 import { getDb } from './schema.js';
 
+// Per-message cost calculation in SQL
 // Pricing per 1M tokens (USD) - https://claude.com/pricing
 // Cache write = 125% of base input, Cache read = 10% of base input
-const PRICING: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
-  'claude-opus-4-5-20251101': { input: 5, cacheWrite: 6.25, cacheRead: 0.50, output: 25 },
-  'claude-sonnet-4-20250514': { input: 3, cacheWrite: 3.75, cacheRead: 0.30, output: 15 },
-  'claude-haiku-4-5-20251001': { input: 1, cacheWrite: 1.25, cacheRead: 0.10, output: 5 },
-};
-
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
-
-export interface TokenBreakdown {
-  inputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  outputTokens: number;
-}
-
-export function calculateCost(
-  model: string,
-  tokens: TokenBreakdown
-): number {
-  const pricing = PRICING[model] || PRICING[DEFAULT_MODEL];
-  return (
-    tokens.inputTokens * pricing.input +
-    tokens.cacheCreationTokens * pricing.cacheWrite +
-    tokens.cacheReadTokens * pricing.cacheRead +
-    tokens.outputTokens * pricing.output
-  ) / 1_000_000;
-}
+// Sonnet 4.5 has tiered pricing: >200K input context uses higher rates
+// CASE order matters: more specific patterns (e.g. sonnet-4-5) must come before
+// broader ones (e.g. sonnet-4) since both would match the broader pattern
+const MESSAGE_COST_SQL = `
+  CASE
+    WHEN m.model LIKE 'claude-sonnet-4-5%' AND
+         (m.input_tokens + m.cache_creation_input_tokens + m.cache_read_input_tokens) > 200000 THEN
+      (m.input_tokens * 6.0 + m.cache_creation_input_tokens * 7.5 + m.cache_read_input_tokens * 0.6 + m.output_tokens * 22.5) / 1000000.0
+    WHEN m.model LIKE 'claude-sonnet-4-5%' THEN
+      (m.input_tokens * 3.0 + m.cache_creation_input_tokens * 3.75 + m.cache_read_input_tokens * 0.3 + m.output_tokens * 15.0) / 1000000.0
+    WHEN m.model LIKE 'claude-opus-4-5%' THEN
+      (m.input_tokens * 5.0 + m.cache_creation_input_tokens * 6.25 + m.cache_read_input_tokens * 0.5 + m.output_tokens * 25.0) / 1000000.0
+    WHEN m.model LIKE 'claude-haiku-4-5%' THEN
+      (m.input_tokens * 1.0 + m.cache_creation_input_tokens * 1.25 + m.cache_read_input_tokens * 0.1 + m.output_tokens * 5.0) / 1000000.0
+    WHEN m.model LIKE 'claude-sonnet-4%' THEN
+      (m.input_tokens * 3.0 + m.cache_creation_input_tokens * 3.75 + m.cache_read_input_tokens * 0.3 + m.output_tokens * 15.0) / 1000000.0
+    ELSE
+      (m.input_tokens * 3.0 + m.cache_creation_input_tokens * 3.75 + m.cache_read_input_tokens * 0.3 + m.output_tokens * 15.0) / 1000000.0
+  END
+`;
 
 export interface Session {
   externalId: string;
@@ -193,6 +187,7 @@ export interface SessionStats {
   outputTokens: number;
   estimatedCostUsd: number;
   messageCount: number;
+  subagentCount: number;
 }
 
 export function getSessionStats(from?: string, to?: string): SessionStats[] {
@@ -209,13 +204,14 @@ export function getSessionStats(from?: string, to?: string): SessionStats[] {
       COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
       COUNT(m.id) as messageCount,
-      m.model
+      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as estimatedCostUsd,
+      (SELECT COUNT(*) FROM subagents sa WHERE sa.session_id = s.id) as subagentCount
     FROM sessions s
     LEFT JOIN messages m ON s.id = m.session_id
   `;
 
   const params: string[] = [];
-  const conditions: string[] = [];
+  const conditions: string[] = ["s.external_id NOT LIKE 'agent-%'"];
 
   if (from) {
     conditions.push('s.start_time >= ?');
@@ -226,35 +222,11 @@ export function getSessionStats(from?: string, to?: string): SessionStats[] {
     params.push(to);
   }
 
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
+  query += ' WHERE ' + conditions.join(' AND ');
 
   query += ' GROUP BY s.id ORDER BY s.start_time DESC';
 
-  const rows = db.prepare(query).all(...params) as Array<{
-    id: number;
-    externalId: string;
-    project: string | null;
-    startTime: string | null;
-    endTime: string | null;
-    inputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    outputTokens: number;
-    messageCount: number;
-    model: string | null;
-  }>;
-
-  return rows.map((row) => ({
-    ...row,
-    estimatedCostUsd: calculateCost(row.model || DEFAULT_MODEL, {
-      inputTokens: row.inputTokens,
-      cacheCreationTokens: row.cacheCreationTokens,
-      cacheReadTokens: row.cacheReadTokens,
-      outputTokens: row.outputTokens,
-    }),
-  }));
+  return db.prepare(query).all(...params) as SessionStats[];
 }
 
 export interface DailyStats {
@@ -279,7 +251,7 @@ export function getDailyStats(from?: string, to?: string): DailyStats[] {
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
       COUNT(DISTINCT m.session_id) as sessionCount,
       COUNT(m.id) as messageCount,
-      m.model
+      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as costUsd
     FROM messages m
   `;
 
@@ -301,26 +273,7 @@ export function getDailyStats(from?: string, to?: string): DailyStats[] {
 
   query += ' GROUP BY date(m.timestamp) ORDER BY date DESC';
 
-  const rows = db.prepare(query).all(...params) as Array<{
-    date: string;
-    inputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    outputTokens: number;
-    sessionCount: number;
-    messageCount: number;
-    model: string | null;
-  }>;
-
-  return rows.map((row) => ({
-    ...row,
-    costUsd: calculateCost(row.model || DEFAULT_MODEL, {
-      inputTokens: row.inputTokens,
-      cacheCreationTokens: row.cacheCreationTokens,
-      cacheReadTokens: row.cacheReadTokens,
-      outputTokens: row.outputTokens,
-    }),
-  }));
+  return db.prepare(query).all(...params) as DailyStats[];
 }
 
 export interface Summary {
@@ -337,15 +290,16 @@ export interface Summary {
 export function getSummary(): Summary {
   const db = getDb();
 
-  const tokenStats = db
+  const stats = db
     .prepare(
       `
     SELECT
-      COALESCE(SUM(input_tokens), 0) as inputTokens,
-      COALESCE(SUM(cache_creation_input_tokens), 0) as cacheCreationTokens,
-      COALESCE(SUM(cache_read_input_tokens), 0) as cacheReadTokens,
-      COALESCE(SUM(output_tokens), 0) as outputTokens
-    FROM messages
+      COALESCE(SUM(m.input_tokens), 0) as inputTokens,
+      COALESCE(SUM(m.cache_creation_input_tokens), 0) as cacheCreationTokens,
+      COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
+      COALESCE(SUM(m.output_tokens), 0) as outputTokens,
+      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as totalCostUsd
+    FROM messages m
   `
     )
     .get() as {
@@ -353,6 +307,7 @@ export function getSummary(): Summary {
     cacheCreationTokens: number;
     cacheReadTokens: number;
     outputTokens: number;
+    totalCostUsd: number;
   };
 
   const sessionStats = db
@@ -363,6 +318,7 @@ export function getSummary(): Summary {
       MIN(start_time) as firstSession,
       MAX(start_time) as lastSession
     FROM sessions
+    WHERE external_id NOT LIKE 'agent-%'
   `
     )
     .get() as {
@@ -371,28 +327,8 @@ export function getSummary(): Summary {
     lastSession: string | null;
   };
 
-  // Get predominant model for cost calculation
-  const modelRow = db
-    .prepare(
-      `
-    SELECT model, COUNT(*) as cnt
-    FROM messages
-    WHERE model IS NOT NULL
-    GROUP BY model
-    ORDER BY cnt DESC
-    LIMIT 1
-  `
-    )
-    .get() as { model: string } | undefined;
-
-  const model = modelRow?.model || DEFAULT_MODEL;
-
   return {
-    inputTokens: tokenStats.inputTokens,
-    cacheCreationTokens: tokenStats.cacheCreationTokens,
-    cacheReadTokens: tokenStats.cacheReadTokens,
-    outputTokens: tokenStats.outputTokens,
-    totalCostUsd: calculateCost(model, tokenStats),
+    ...stats,
     sessionCount: sessionStats.sessionCount,
     firstSession: sessionStats.firstSession
       ? sessionStats.firstSession.split('T')[0]
@@ -401,6 +337,57 @@ export function getSummary(): Summary {
       ? sessionStats.lastSession.split('T')[0]
       : null,
   };
+}
+
+export interface SubagentStats {
+  id: number;
+  externalId: string;
+  type: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  inputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+  messageCount: number;
+}
+
+export function getSubagentsBySessionId(sessionId: number): SubagentStats[] {
+  const db = getDb();
+  const query = `
+    SELECT
+      sa.id,
+      sa.external_id as externalId,
+      sa.type,
+      sa.start_time as startTime,
+      sa.end_time as endTime,
+      COALESCE(SUM(m.input_tokens), 0) as inputTokens,
+      COALESCE(SUM(m.cache_creation_input_tokens), 0) as cacheCreationTokens,
+      COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
+      COALESCE(SUM(m.output_tokens), 0) as outputTokens,
+      COUNT(m.id) as messageCount,
+      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as estimatedCostUsd
+    FROM subagents sa
+    LEFT JOIN messages m ON sa.id = m.subagent_id
+    WHERE sa.session_id = ?
+    GROUP BY sa.id
+    ORDER BY sa.start_time ASC
+  `;
+  return db.prepare(query).all(sessionId) as SubagentStats[];
+}
+
+export function cleanupOrphanedSubagentSessions(): void {
+  const db = getDb();
+  // Delete messages for sessions whose external_id looks like a subagent
+  // (these were incorrectly parsed as sessions before subagent routing)
+  db.prepare(`
+    DELETE FROM messages WHERE session_id IN (
+      SELECT id FROM sessions WHERE external_id LIKE 'agent-%'
+    )
+  `).run();
+  // Delete the orphaned session entries themselves
+  db.prepare(`DELETE FROM sessions WHERE external_id LIKE 'agent-%'`).run();
 }
 
 export function clearSessionMessages(sessionId: number): void {
