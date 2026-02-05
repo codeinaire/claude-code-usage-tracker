@@ -6,6 +6,26 @@ import { getDb } from './schema.js';
 // Sonnet 4.5 has tiered pricing: >200K input context uses higher rates
 // CASE order matters: more specific patterns (e.g. sonnet-4-5) must come before
 // broader ones (e.g. sonnet-4) since both would match the broader pattern
+
+// Hypothetical cost if cache reads were charged at full input rate (no caching discount)
+const MESSAGE_COST_NO_CACHE_SQL = `
+  CASE
+    WHEN m.model LIKE 'claude-sonnet-4-5%' AND
+         (m.input_tokens + m.cache_creation_input_tokens + m.cache_read_input_tokens) > 200000 THEN
+      (m.input_tokens * 6.0 + m.cache_creation_input_tokens * 6.0 + m.cache_read_input_tokens * 6.0 + m.output_tokens * 22.5) / 1000000.0
+    WHEN m.model LIKE 'claude-sonnet-4-5%' THEN
+      (m.input_tokens * 3.0 + m.cache_creation_input_tokens * 3.0 + m.cache_read_input_tokens * 3.0 + m.output_tokens * 15.0) / 1000000.0
+    WHEN m.model LIKE 'claude-opus-4-5%' THEN
+      (m.input_tokens * 5.0 + m.cache_creation_input_tokens * 5.0 + m.cache_read_input_tokens * 5.0 + m.output_tokens * 25.0) / 1000000.0
+    WHEN m.model LIKE 'claude-haiku-4-5%' THEN
+      (m.input_tokens * 1.0 + m.cache_creation_input_tokens * 1.0 + m.cache_read_input_tokens * 1.0 + m.output_tokens * 5.0) / 1000000.0
+    WHEN m.model LIKE 'claude-sonnet-4%' THEN
+      (m.input_tokens * 3.0 + m.cache_creation_input_tokens * 3.0 + m.cache_read_input_tokens * 3.0 + m.output_tokens * 15.0) / 1000000.0
+    ELSE
+      (m.input_tokens * 3.0 + m.cache_creation_input_tokens * 3.0 + m.cache_read_input_tokens * 3.0 + m.output_tokens * 15.0) / 1000000.0
+  END
+`;
+
 const MESSAGE_COST_SQL = `
   CASE
     WHEN m.model LIKE 'claude-sonnet-4-5%' AND
@@ -282,6 +302,7 @@ export interface Summary {
   cacheReadTokens: number;
   outputTokens: number;
   totalCostUsd: number;
+  costWithoutCacheUsd: number;
   sessionCount: number;
   firstSession: string | null;
   lastSession: string | null;
@@ -298,7 +319,8 @@ export function getSummary(): Summary {
       COALESCE(SUM(m.cache_creation_input_tokens), 0) as cacheCreationTokens,
       COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
-      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as totalCostUsd
+      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as totalCostUsd,
+      COALESCE(SUM(${MESSAGE_COST_NO_CACHE_SQL}), 0) as costWithoutCacheUsd
     FROM messages m
   `
     )
@@ -308,6 +330,7 @@ export function getSummary(): Summary {
     cacheReadTokens: number;
     outputTokens: number;
     totalCostUsd: number;
+    costWithoutCacheUsd: number;
   };
 
   const sessionStats = db
