@@ -1,19 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import DateRangePicker from './DateRangePicker';
-import DailyStatsTable from './DailyStatsTable';
-import SessionList from './SessionList';
-import AggregatedStatsCard from './AggregatedStatsCard';
+import React, { useState, useEffect, useCallback } from 'react'
+import DateRangePicker from './DateRangePicker'
+import ProjectFilter from './ProjectFilter'
+import DailyStatsTable from './DailyStatsTable'
+import SessionList from './SessionList'
+import AggregatedStatsCard from './AggregatedStatsCard'
 
 interface Summary {
-  inputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  outputTokens: number;
-  totalCostUsd: number;
-  costWithoutCacheUsd: number;
-  sessionCount: number;
-  firstSession: string | null;
-  lastSession: string | null;
+  inputTokens: number
+  cacheCreationTokens: number
+  cacheReadTokens: number
+  outputTokens: number
+  totalCostUsd: number
+  costWithoutCacheUsd: number
+  sessionCount: number
+  firstSession: string | null
+  lastSession: string | null
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -59,56 +60,61 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '6px',
     marginBottom: '16px',
   },
-};
+}
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null)
+  const [projectFilter, setProjectFilter] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const fetchSummary = useCallback(async () => {
     try {
-      const res = await fetch('/api/stats/summary');
-      if (!res.ok) throw new Error('Failed to fetch summary');
-      const data = await res.json();
-      setSummary(data);
-      setError(null);
+      let url = '/api/stats/summary'
+      if (projectFilter) {
+        url += `?project=${encodeURIComponent(projectFilter)}`
+      }
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('Failed to fetch summary')
+      const data = await res.json()
+      setSummary(data)
+      setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
+  }, [projectFilter])
 
   useEffect(() => {
-    fetchSummary();
-  }, [fetchSummary]);
+    fetchSummary()
+  }, [fetchSummary])
 
   const handleSyncAll = async () => {
-    setSyncing(true);
-    setSyncStatus('Syncing...');
+    setSyncing(true)
+    setSyncStatus('Syncing...')
     try {
-      const res = await fetch('/api/sync/all', { method: 'POST' });
-      if (!res.ok) throw new Error('Sync failed');
-      const data = await res.json();
+      const res = await fetch('/api/sync/all', { method: 'POST' })
+      if (!res.ok) throw new Error('Sync failed')
+      const data = await res.json()
       setSyncStatus(
-        `Imported ${data.messagesImported} messages from ${data.sessionsImported} sessions`
-      );
-      await fetchSummary();
-      setRefreshKey((k) => k + 1);
+        `Imported ${data.messagesImported} messages from ${data.sessionsImported} sessions`,
+      )
+      await fetchSummary()
+      setRefreshKey((k) => k + 1)
     } catch (err) {
-      setSyncStatus('Sync failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setSyncStatus('Sync failed: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
-      setSyncing(false);
+      setSyncing(false)
     }
-  };
+  }
 
   if (loading) {
-    return <div>Loading...</div>;
+    return <div>Loading...</div>
   }
 
   return (
@@ -132,18 +138,21 @@ export default function Dashboard() {
       <AggregatedStatsCard summary={summary} />
 
       <div style={styles.section}>
-        <DateRangePicker onChange={setDateRange} />
+        <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+          <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} />
+          <DateRangePicker onChange={setDateRange} />
+        </div>
       </div>
 
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Daily Usage</h2>
-        <DailyStatsTable dateRange={dateRange} refreshKey={refreshKey} />
+        <DailyStatsTable dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />
       </div>
 
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Sessions</h2>
-        <SessionList dateRange={dateRange} refreshKey={refreshKey} />
+        <SessionList dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />
       </div>
     </div>
-  );
+  )
 }

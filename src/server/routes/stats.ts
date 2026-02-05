@@ -1,13 +1,26 @@
 import { Router, type Request, type Response } from 'express';
-import { getSessionStats, getDailyStats, getSummary, getSubagentsBySessionId } from '../db/queries.js';
+import { getSessionStats, getDailyStats, getSummary, getSubagentsBySessionId, getProjects } from '../db/queries.js';
 
 const router = Router();
+
+// GET /api/stats/projects - List distinct projects
+router.get('/projects', (_req: Request, res: Response) => {
+  try {
+    const projects = getProjects();
+    res.json({ projects });
+  } catch (error) {
+    console.error('Get projects error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 // GET /api/stats/sessions - List sessions with aggregated totals
 router.get('/sessions', (req: Request, res: Response) => {
   try {
-    const { from, to } = req.query as { from?: string; to?: string };
-    const sessions = getSessionStats(from, to);
+    const { from, to, project } = req.query as { from?: string; to?: string; project?: string };
+    const sessions = getSessionStats(from, to, project);
     res.json({ sessions });
   } catch (error) {
     console.error('Get sessions error:', error);
@@ -20,8 +33,8 @@ router.get('/sessions', (req: Request, res: Response) => {
 // GET /api/stats/daily - Daily aggregated stats
 router.get('/daily', (req: Request, res: Response) => {
   try {
-    const { from, to } = req.query as { from?: string; to?: string };
-    const daily = getDailyStats(from, to);
+    const { from, to, project } = req.query as { from?: string; to?: string; project?: string };
+    const daily = getDailyStats(from, to, project);
     res.json({ daily });
   } catch (error) {
     console.error('Get daily stats error:', error);
@@ -32,9 +45,10 @@ router.get('/daily', (req: Request, res: Response) => {
 });
 
 // GET /api/stats/summary - Overall summary
-router.get('/summary', (_req: Request, res: Response) => {
+router.get('/summary', (req: Request, res: Response) => {
   try {
-    const summary = getSummary();
+    const { project } = req.query as { project?: string };
+    const summary = getSummary(project);
     res.json(summary);
   } catch (error) {
     console.error('Get summary error:', error);

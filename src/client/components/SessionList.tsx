@@ -31,6 +31,7 @@ interface Subagent {
 
 interface SessionListProps {
   dateRange: { from: string; to: string } | null;
+  project?: string | null;
   refreshKey?: number;
 }
 
@@ -194,7 +195,7 @@ function getProjectName(project: string | null): string {
   return parts.length > 0 ? parts[parts.length - 1] : '-';
 }
 
-export default function SessionList({ dateRange, refreshKey }: SessionListProps) {
+export default function SessionList({ dateRange, project, refreshKey }: SessionListProps) {
   const [data, setData] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageSize, setPageSize] = useState(25);
@@ -209,16 +210,22 @@ export default function SessionList({ dateRange, refreshKey }: SessionListProps)
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateRange, pageSize]);
+  }, [dateRange, project, pageSize]);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        let url = '/api/stats/sessions';
+        const params = new URLSearchParams();
         if (dateRange) {
-          url += `?from=${dateRange.from}&to=${dateRange.to}`;
+          params.set('from', dateRange.from);
+          params.set('to', dateRange.to);
         }
+        if (project) {
+          params.set('project', project);
+        }
+        const qs = params.toString();
+        const url = '/api/stats/sessions' + (qs ? `?${qs}` : '');
         const res = await fetch(url);
         const json = await res.json();
         setData(json.sessions || []);
@@ -230,7 +237,7 @@ export default function SessionList({ dateRange, refreshKey }: SessionListProps)
       }
     };
     fetchData();
-  }, [dateRange, refreshKey]);
+  }, [dateRange, project, refreshKey]);
 
   const toggleExpand = async (sessionId: number) => {
     const next = new Set(expandedSessions);
