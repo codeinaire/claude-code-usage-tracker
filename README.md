@@ -20,7 +20,7 @@ npm install
 # Start the development server
 npm run dev
 
-# Open http://localhost:3000 in your browser
+# Open http://localhost:5173/ in your browser
 # Click "Sync All Sessions" to import your usage data
 ```
 
@@ -29,7 +29,7 @@ npm run dev
 ### Manual Sync
 
 1. Run `npm run dev` to start both the API server and Vite dev server
-2. Open http://localhost:3000
+2. Open http://localhost:5173/
 3. Click "Sync All Sessions" to import all your Claude Code session data
 
 ### Automatic Sync (Recommended)
