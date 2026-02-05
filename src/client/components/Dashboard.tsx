@@ -10,6 +10,7 @@ interface Summary {
   cacheReadTokens: number;
   outputTokens: number;
   totalCostUsd: number;
+  costWithoutCacheUsd: number;
   sessionCount: number;
   firstSession: string | null;
   lastSession: string | null;

@@ -8,6 +8,7 @@ interface Summary {
   cacheReadTokens: number
   outputTokens: number
   totalCostUsd: number
+  costWithoutCacheUsd: number
   sessionCount: number
   firstSession: string | null
   lastSession: string | null
@@ -104,15 +105,63 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
         <div style={styles.cardValue}>{summary ? formatNumber(summary.cacheReadTokens) : '-'}</div>
         <div style={styles.cardSubvalue}>10% of input price</div>
       </div>
-      {/* Row 2: Output tokens */}
+      {/* Row 2: Cost & Cache Efficiency */}
       <div style={{ ...styles.card, gridRow: 2 }}>
-        <div style={styles.cardLabel}>Output Tokens</div>
-        <div style={styles.cardValue}>{summary ? formatNumber(summary.outputTokens) : '-'}</div>
-      </div>
-      {/* Row 3: Cost */}
-      <div style={{ ...styles.card, gridRow: 3 }}>
         <div style={styles.cardLabel}>Estimated Cost</div>
         <div style={styles.cardValue}>{summary ? formatCurrency(summary.totalCostUsd) : '-'}</div>
+        {summary && summary.costWithoutCacheUsd > 0 && (
+          <div style={styles.cardSubvalue}>
+            {formatCurrency(summary.costWithoutCacheUsd)} without caching
+          </div>
+        )}
+      </div>
+      <div style={{ gridRow: 2 }} />
+      <div style={{ ...styles.card, gridRow: 2 }}>
+        <div style={styles.cardLabel}>Money Saved</div>
+        <div
+          style={{
+            ...styles.cardValue,
+            color:
+              summary && summary.costWithoutCacheUsd > summary.totalCostUsd ? '#16a34a' : '#1a1a1a',
+          }}
+        >
+          {summary ? formatCurrency(summary.costWithoutCacheUsd - summary.totalCostUsd) : '-'}
+        </div>
+        <div style={styles.cardSubvalue}>
+          {summary && summary.costWithoutCacheUsd > 0
+            ? `${((1 - summary.totalCostUsd / summary.costWithoutCacheUsd) * 100).toFixed(1)}% cheaper via caching`
+            : 'From prompt caching'}
+        </div>
+      </div>
+      <div style={{ gridRow: 2 }} />
+      <div style={{ ...styles.card, gridRow: 2 }}>
+        <div style={styles.cardLabel}>Cache Hit Rate</div>
+        <div style={{ ...styles.cardValue, color: '#2563eb' }}>
+          {summary && summary.cacheReadTokens + summary.cacheCreationTokens > 0
+            ? `${((summary.cacheReadTokens / (summary.cacheReadTokens + summary.cacheCreationTokens)) * 100).toFixed(1)}%`
+            : '-'}
+        </div>
+        <div style={styles.cardSubvalue}>
+          {summary
+            ? `${formatNumber(summary.cacheReadTokens)} reads / ${formatNumber(summary.cacheReadTokens + summary.cacheCreationTokens)} total cached`
+            : 'Cache reads vs writes'}
+        </div>
+      </div>
+      <div style={{ gridRow: 2 }} />
+      <div style={{ ...styles.card, gridRow: 2 }}>
+        <div style={styles.cardLabel}>Cache Efficiency</div>
+        <div style={{ ...styles.cardValue, color: '#9333ea' }}>
+          {summary &&
+          summary.inputTokens + summary.cacheCreationTokens + summary.cacheReadTokens > 0
+            ? `${((summary.cacheReadTokens / (summary.inputTokens + summary.cacheCreationTokens + summary.cacheReadTokens)) * 100).toFixed(1)}%`
+            : '-'}
+        </div>
+        <div style={styles.cardSubvalue}>Of all input served from cache</div>
+      </div>
+      {/* Row 3: Output tokens */}
+      <div style={{ ...styles.card, gridRow: 3 }}>
+        <div style={styles.cardLabel}>Output Tokens</div>
+        <div style={styles.cardValue}>{summary ? formatNumber(summary.outputTokens) : '-'}</div>
       </div>
       {/* Row 4: Sessions */}
       <div style={{ ...styles.card, gridRow: 4 }}>
