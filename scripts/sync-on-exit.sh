@@ -33,6 +33,9 @@ is_server_running() {
     curl -s "$SERVER_URL/api/health" > /dev/null 2>&1
 }
 
+# Track whether we started the server ourselves
+STARTED_SERVER=false
+
 # Function to start server if not running
 start_server_if_needed() {
     if is_server_running; then
@@ -40,6 +43,7 @@ start_server_if_needed() {
     fi
 
     echo "Starting server..." >&2
+    STARTED_SERVER=true
 
     # Start server in background
     cd "$PROJECT_DIR"
@@ -79,10 +83,10 @@ else
     echo "Sync response: $RESPONSE" >&2
 fi
 
-# Shutdown server
-curl -s -X POST "$SERVER_URL/api/shutdown" > /dev/null 2>&1 || true
-
-# Clean up PID file
-rm -f "$SERVER_PID_FILE"
+# Only shutdown server if we started it
+if [ "$STARTED_SERVER" = true ]; then
+    curl -s -X POST "$SERVER_URL/api/shutdown" > /dev/null 2>&1 || true
+    rm -f "$SERVER_PID_FILE"
+fi
 
 exit 0
