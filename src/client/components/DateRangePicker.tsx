@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState } from 'react'
 
 interface DateRangePickerProps {
-  onChange: (range: { from: string; to: string } | null) => void;
+  onChange: (range: { from: string; to: string } | null) => void
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -9,7 +9,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '12px',
     alignItems: 'center',
-    flexWrap: 'wrap',
   },
   label: {
     fontSize: '14px',
@@ -43,38 +42,38 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#4b5563',
   },
-};
+}
 
 function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
+  return date.toISOString().split('T')[0]
 }
 
 export default function DateRangePicker({ onChange }: DateRangePickerProps) {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
 
   const handleApply = () => {
     if (from && to) {
-      onChange({ from, to });
+      onChange({ from, to })
     } else if (!from && !to) {
-      onChange(null);
+      onChange(null)
     }
-  };
+  }
 
   const handleClear = () => {
-    setFrom('');
-    setTo('');
-    onChange(null);
-  };
+    setFrom('')
+    setTo('')
+    onChange(null)
+  }
 
   const setQuickRange = (days: number) => {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    setFrom(formatDate(startDate));
-    setTo(formatDate(endDate));
-    onChange({ from: formatDate(startDate), to: formatDate(endDate) });
-  };
+    const endDate = new Date()
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days)
+    setFrom(formatDate(startDate))
+    setTo(formatDate(endDate))
+    onChange({ from: formatDate(startDate), to: formatDate(endDate) })
+  }
 
   return (
     <div style={styles.container}>
@@ -86,12 +85,7 @@ export default function DateRangePicker({ onChange }: DateRangePickerProps) {
         style={styles.input}
       />
       <span style={styles.label}>To:</span>
-      <input
-        type="date"
-        value={to}
-        onChange={(e) => setTo(e.target.value)}
-        style={styles.input}
-      />
+      <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={styles.input} />
       <button onClick={handleApply} style={styles.button}>
         Apply
       </button>
@@ -111,5 +105,5 @@ export default function DateRangePicker({ onChange }: DateRangePickerProps) {
         </button>
       </div>
     </div>
-  );
+  )
 }

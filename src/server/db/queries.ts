@@ -210,7 +210,7 @@ export interface SessionStats {
   subagentCount: number;
 }
 
-export function getSessionStats(from?: string, to?: string): SessionStats[] {
+export function getSessionStats(from?: string, to?: string, project?: string): SessionStats[] {
   const db = getDb();
   let query = `
     SELECT
@@ -241,6 +241,10 @@ export function getSessionStats(from?: string, to?: string): SessionStats[] {
     conditions.push('s.start_time <= ?');
     params.push(to);
   }
+  if (project) {
+    conditions.push('s.project = ?');
+    params.push(project);
+  }
 
   query += ' WHERE ' + conditions.join(' AND ');
 
@@ -260,7 +264,7 @@ export interface DailyStats {
   messageCount: number;
 }
 
-export function getDailyStats(from?: string, to?: string): DailyStats[] {
+export function getDailyStats(from?: string, to?: string, project?: string): DailyStats[] {
   const db = getDb();
   let query = `
     SELECT
@@ -277,6 +281,12 @@ export function getDailyStats(from?: string, to?: string): DailyStats[] {
 
   const params: string[] = [];
   const conditions: string[] = [];
+
+  if (project) {
+    query += ' JOIN sessions s ON s.id = m.session_id';
+    conditions.push('s.project = ?');
+    params.push(project);
+  }
 
   if (from) {
     conditions.push('date(m.timestamp) >= ?');
@@ -308,8 +318,12 @@ export interface Summary {
   lastSession: string | null;
 }
 
-export function getSummary(): Summary {
+export function getSummary(project?: string): Summary {
   const db = getDb();
+
+  const projectJoin = project ? ' JOIN sessions s ON s.id = m.session_id' : '';
+  const projectWhere = project ? ' WHERE s.project = ?' : '';
+  const statsParams = project ? [project] : [];
 
   const stats = db
     .prepare(
@@ -321,10 +335,10 @@ export function getSummary(): Summary {
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as totalCostUsd,
       COALESCE(SUM(${MESSAGE_COST_NO_CACHE_SQL}), 0) as costWithoutCacheUsd
-    FROM messages m
+    FROM messages m${projectJoin}${projectWhere}
   `
     )
-    .get() as {
+    .get(...statsParams) as {
     inputTokens: number;
     cacheCreationTokens: number;
     cacheReadTokens: number;
@@ -332,6 +346,13 @@ export function getSummary(): Summary {
     totalCostUsd: number;
     costWithoutCacheUsd: number;
   };
+
+  const sessionConditions = ["external_id NOT LIKE 'agent-%'"];
+  const sessionParams: string[] = [];
+  if (project) {
+    sessionConditions.push('project = ?');
+    sessionParams.push(project);
+  }
 
   const sessionStats = db
     .prepare(
@@ -341,10 +362,10 @@ export function getSummary(): Summary {
       MIN(start_time) as firstSession,
       MAX(start_time) as lastSession
     FROM sessions
-    WHERE external_id NOT LIKE 'agent-%'
+    WHERE ${sessionConditions.join(' AND ')}
   `
     )
-    .get() as {
+    .get(...sessionParams) as {
     sessionCount: number;
     firstSession: string | null;
     lastSession: string | null;
@@ -360,6 +381,16 @@ export function getSummary(): Summary {
       ? sessionStats.lastSession.split('T')[0]
       : null,
   };
+}
+
+export function getProjects(): string[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT project FROM sessions WHERE project IS NOT NULL AND external_id NOT LIKE 'agent-%' ORDER BY project`
+    )
+    .all() as { project: string }[];
+  return rows.map((r) => r.project);
 }
 
 export interface SubagentStats {

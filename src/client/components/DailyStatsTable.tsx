@@ -13,6 +13,7 @@ interface DailyStats {
 
 interface DailyStatsTableProps {
   dateRange: { from: string; to: string } | null;
+  project?: string | null;
   refreshKey?: number;
 }
 
@@ -64,7 +65,7 @@ function formatCurrency(n: number): string {
   return '$' + n.toFixed(2);
 }
 
-export default function DailyStatsTable({ dateRange, refreshKey }: DailyStatsTableProps) {
+export default function DailyStatsTable({ dateRange, project, refreshKey }: DailyStatsTableProps) {
   const [data, setData] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -72,10 +73,16 @@ export default function DailyStatsTable({ dateRange, refreshKey }: DailyStatsTab
     const fetchData = async () => {
       setLoading(true);
       try {
-        let url = '/api/stats/daily';
+        const params = new URLSearchParams();
         if (dateRange) {
-          url += `?from=${dateRange.from}&to=${dateRange.to}`;
+          params.set('from', dateRange.from);
+          params.set('to', dateRange.to);
         }
+        if (project) {
+          params.set('project', project);
+        }
+        const qs = params.toString();
+        const url = '/api/stats/daily' + (qs ? `?${qs}` : '');
         const res = await fetch(url);
         const json = await res.json();
         setData(json.daily || []);
@@ -87,7 +94,7 @@ export default function DailyStatsTable({ dateRange, refreshKey }: DailyStatsTab
       }
     };
     fetchData();
-  }, [dateRange, refreshKey]);
+  }, [dateRange, project, refreshKey]);
 
   if (loading) {
     return <div style={styles.container}><div style={styles.empty}>Loading...</div></div>;
