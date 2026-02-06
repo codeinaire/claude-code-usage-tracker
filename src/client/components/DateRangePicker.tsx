@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
 interface DateRangePickerProps {
   onChange: (range: { from: string; to: string } | null) => void
+  clearKey?: number
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -42,28 +43,40 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#4b5563',
   },
+  quickButtonActive: {
+    background: '#2563eb',
+    border: '1px solid #2563eb',
+    color: 'white',
+  },
 }
 
 function formatDate(date: Date): string {
   return date.toISOString().split('T')[0]
 }
 
-export default function DateRangePicker({ onChange }: DateRangePickerProps) {
+export default function DateRangePicker({ onChange, clearKey }: DateRangePickerProps) {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [activeQuick, setActiveQuick] = useState<number | null>(null)
+  const isFirstRender = useRef(true)
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    setFrom('')
+    setTo('')
+    setActiveQuick(null)
+  }, [clearKey])
 
   const handleApply = () => {
+    setActiveQuick(null)
     if (from && to) {
       onChange({ from, to })
     } else if (!from && !to) {
       onChange(null)
     }
-  }
-
-  const handleClear = () => {
-    setFrom('')
-    setTo('')
-    onChange(null)
   }
 
   const setQuickRange = (days: number) => {
@@ -72,6 +85,7 @@ export default function DateRangePicker({ onChange }: DateRangePickerProps) {
     startDate.setDate(startDate.getDate() - days)
     setFrom(formatDate(startDate))
     setTo(formatDate(endDate))
+    setActiveQuick(days)
     onChange({ from: formatDate(startDate), to: formatDate(endDate) })
   }
 
@@ -89,20 +103,16 @@ export default function DateRangePicker({ onChange }: DateRangePickerProps) {
       <button onClick={handleApply} style={styles.button}>
         Apply
       </button>
-      <button onClick={handleClear} style={styles.button}>
-        Clear
-      </button>
-
       <div style={styles.quickSelect}>
-        <button onClick={() => setQuickRange(7)} style={styles.quickButton}>
-          Last 7 days
-        </button>
-        <button onClick={() => setQuickRange(30)} style={styles.quickButton}>
-          Last 30 days
-        </button>
-        <button onClick={() => setQuickRange(90)} style={styles.quickButton}>
-          Last 90 days
-        </button>
+        {[7, 30, 90].map((days) => (
+          <button
+            key={days}
+            onClick={() => setQuickRange(days)}
+            style={activeQuick === days ? { ...styles.quickButton, ...styles.quickButtonActive } : styles.quickButton}
+          >
+            Last {days} days
+          </button>
+        ))}
       </div>
     </div>
   )

@@ -21,10 +21,15 @@ interface AggregatedStatsCardProps {
 const styles: Record<string, React.CSSProperties> = {
   grid: {
     display: 'grid',
-    gridTemplateRows: 'repeat(4, auto)',
-    gridTemplateColumns: 'repeat(7, 200px 30px)',
+    gridTemplateColumns: 'repeat(4, 200px 30px)',
     gap: '16px',
     marginBottom: '32px',
+  },
+  sectionHeader: {
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#374151',
+    padding: '8px 0 0',
   },
   card: {
     background: 'white',
@@ -68,8 +73,13 @@ function formatCurrency(n: number): string {
 export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProps) {
   return (
     <div style={styles.grid}>
-      {/* Row 1: Input tokens (7 columns) */}
-      <div style={{ ...styles.card, gridRow: 1 }}>
+      {/* Row 1: Input Token Stats header */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <div style={styles.sectionHeader}>Input Token Stats</div>
+      </div>
+
+      {/* Row 2: Input token items */}
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Total Input Tokens</div>
         <div style={styles.cardValue}>
           {summary
@@ -79,34 +89,40 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
             : '-'}
         </div>
       </div>
-      <div style={{ gridRow: 1, alignSelf: 'center', justifySelf: 'center' }}>
+      <div style={{ alignSelf: 'center', justifySelf: 'center' }}>
         <CgMathEqual size={24} color="#888" />
       </div>
-      <div style={{ ...styles.card, gridRow: 1 }}>
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Input Tokens</div>
         <div style={styles.cardValue}>{summary ? formatNumber(summary.inputTokens) : '-'}</div>
         <div style={styles.cardSubvalue}>Base input tokens</div>
       </div>
-      <div style={{ gridRow: 1, alignSelf: 'center', justifySelf: 'center' }}>
+      <div style={{ alignSelf: 'center', justifySelf: 'center' }}>
         <CgMathPlus size={24} color="#888" />
       </div>
-      <div style={{ ...styles.card, gridRow: 1 }}>
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Cache Write Tokens</div>
         <div style={styles.cardValue}>
           {summary ? formatNumber(summary.cacheCreationTokens) : '-'}
         </div>
         <div style={styles.cardSubvalue}>125% of input price</div>
       </div>
-      <div style={{ gridRow: 1, alignSelf: 'center', justifySelf: 'center' }}>
+      <div style={{ alignSelf: 'center', justifySelf: 'center' }}>
         <CgMathPlus size={24} color="#888" />
       </div>
-      <div style={{ ...styles.card, gridRow: 1 }}>
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Cache Read Tokens</div>
         <div style={styles.cardValue}>{summary ? formatNumber(summary.cacheReadTokens) : '-'}</div>
         <div style={styles.cardSubvalue}>10% of input price</div>
       </div>
-      {/* Row 2: Cost & Cache Efficiency */}
-      <div style={{ ...styles.card, gridRow: 2 }}>
+
+      {/* Row 3: Cost Stats header */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <div style={styles.sectionHeader}>Cost Stats</div>
+      </div>
+
+      {/* Row 4: Cost & Cache Efficiency items */}
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Estimated Cost</div>
         <div style={styles.cardValue}>{summary ? formatCurrency(summary.totalCostUsd) : '-'}</div>
         {summary && summary.costWithoutCacheUsd > 0 && (
@@ -115,8 +131,8 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
           </div>
         )}
       </div>
-      <div style={{ gridRow: 2 }} />
-      <div style={{ ...styles.card, gridRow: 2 }}>
+      <div />
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Money Saved</div>
         <div
           style={{
@@ -133,8 +149,8 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
             : 'From prompt caching'}
         </div>
       </div>
-      <div style={{ gridRow: 2 }} />
-      <div style={{ ...styles.card, gridRow: 2 }}>
+      <div />
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Cache Hit Rate</div>
         <div style={{ ...styles.cardValue, color: '#2563eb' }}>
           {summary && summary.cacheReadTokens + summary.cacheCreationTokens > 0
@@ -147,8 +163,8 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
             : 'Cache reads vs writes'}
         </div>
       </div>
-      <div style={{ gridRow: 2 }} />
-      <div style={{ ...styles.card, gridRow: 2 }}>
+      <div />
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Cache Efficiency</div>
         <div style={{ ...styles.cardValue, color: '#9333ea' }}>
           {summary &&
@@ -158,13 +174,19 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
         </div>
         <div style={styles.cardSubvalue}>Of all input served from cache</div>
       </div>
-      {/* Row 3: Output tokens */}
-      <div style={{ ...styles.card, gridRow: 3 }}>
+
+      {/* Row 5: Misc header */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <div style={styles.sectionHeader}>Misc</div>
+      </div>
+
+      {/* Row 6: Output tokens & Sessions */}
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Output Tokens</div>
         <div style={styles.cardValue}>{summary ? formatNumber(summary.outputTokens) : '-'}</div>
       </div>
-      {/* Row 4: Sessions */}
-      <div style={{ ...styles.card, gridRow: 4 }}>
+      <div />
+      <div style={styles.card}>
         <div style={styles.cardLabel}>Sessions</div>
         <div style={styles.cardValue}>{summary?.sessionCount ?? '-'}</div>
         {summary?.firstSession && summary?.lastSession && (
