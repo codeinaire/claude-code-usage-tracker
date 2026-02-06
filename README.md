@@ -116,3 +116,9 @@ claude-code-usage-tracker/
 - Node.js 18+
 - npm
 - jq (optional, for the sync script - falls back to grep/sed)
+
+## TODO
+
+- name individual sessions
+- add unit tests to check validity of numbers
+- refactor

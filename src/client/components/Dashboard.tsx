@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import DateRangePicker from './DateRangePicker'
 import ProjectFilter from './ProjectFilter'
 import DailyStatsTable from './DailyStatsTable'
@@ -70,6 +70,43 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '6px',
     marginBottom: '16px',
   },
+  exportWrapper: {
+    position: 'relative' as const,
+  },
+  exportButton: {
+    padding: '10px 20px',
+    background: 'white',
+    color: '#374151',
+    border: '1px solid #d1d5db',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 500,
+  },
+  exportMenu: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    marginTop: '4px',
+    background: 'white',
+    border: '1px solid #d1d5db',
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    zIndex: 10,
+    minWidth: '200px',
+    overflow: 'hidden',
+  },
+  exportMenuItem: {
+    display: 'block',
+    width: '100%',
+    padding: '10px 16px',
+    background: 'none',
+    border: 'none',
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+    fontSize: '14px',
+    color: '#374151',
+  },
 }
 
 export default function Dashboard() {
@@ -86,6 +123,77 @@ export default function Dashboard() {
   const [dailyOpen, setDailyOpen] = useState(true)
   const [sessionsOpen, setSessionsOpen] = useState(true)
   const [filtersOpen, setFiltersOpen] = useState(true)
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const buildFilterParams = () => {
+    const params = new URLSearchParams()
+    if (dateRange) {
+      params.set('from', dateRange.from)
+      params.set('to', dateRange.to)
+    }
+    if (projectFilter) {
+      params.set('project', projectFilter)
+    }
+    return params.toString()
+  }
+
+  const downloadFile = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const toCsv = (rows: Record<string, unknown>[]) => {
+    if (rows.length === 0) return ''
+    const headers = Object.keys(rows[0])
+    const lines = rows.map((row) =>
+      headers.map((h) => {
+        const val = String(row[h] ?? '')
+        return val.includes(',') || val.includes('"') || val.includes('\n')
+          ? `"${val.replace(/"/g, '""')}"`
+          : val
+      }).join(','),
+    )
+    return [headers.join(','), ...lines].join('\n')
+  }
+
+  const handleExport = async (dataset: 'daily' | 'sessions', format: 'csv' | 'json') => {
+    setExportOpen(false)
+    try {
+      const qs = buildFilterParams()
+      const endpoint = dataset === 'daily' ? '/api/stats/daily' : '/api/stats/sessions'
+      const url = endpoint + (qs ? `?${qs}` : '')
+      const res = await fetch(url)
+      const json = await res.json()
+      const rows = dataset === 'daily' ? json.daily : json.sessions
+
+      const timestamp = new Date().toISOString().split('T')[0]
+      const filename = `${dataset}-${timestamp}.${format}`
+
+      if (format === 'json') {
+        downloadFile(JSON.stringify(rows, null, 2), filename, 'application/json')
+      } else {
+        downloadFile(toCsv(rows), filename, 'text/csv')
+      }
+    } catch (err) {
+      console.error('Export failed:', err)
+    }
+  }
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -145,6 +253,22 @@ export default function Dashboard() {
         >
           {syncing ? 'Syncing...' : 'Sync All Sessions'}
         </button>
+        <div style={styles.exportWrapper} ref={exportRef}>
+          <button
+            style={styles.exportButton}
+            onClick={() => setExportOpen(!exportOpen)}
+          >
+            Export &#9662;
+          </button>
+          {exportOpen && (
+            <div style={styles.exportMenu}>
+              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('daily', 'csv')}>Daily Usage (CSV)</button>
+              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('daily', 'json')}>Daily Usage (JSON)</button>
+              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('sessions', 'csv')}>Sessions (CSV)</button>
+              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('sessions', 'json')}>Sessions (JSON)</button>
+            </div>
+          )}
+        </div>
         {syncStatus && <span style={styles.status}>{syncStatus}</span>}
       </div>
 
