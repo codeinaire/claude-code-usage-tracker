@@ -17,6 +17,8 @@ interface DailyStatsTableProps {
   refreshKey?: number;
 }
 
+const PAGE_SIZE_OPTIONS = [25, 50, 75, 100];
+
 const styles: Record<string, React.CSSProperties> = {
   container: {
     background: 'white',
@@ -55,6 +57,44 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center' as const,
     color: '#9ca3af',
   },
+  pagination: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 16px',
+    borderTop: '1px solid #e5e7eb',
+    background: '#f9fafb',
+    fontSize: '14px',
+    color: '#6b7280',
+  },
+  paginationControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  pageButton: {
+    padding: '6px 12px',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    background: 'white',
+    cursor: 'pointer',
+    fontSize: '13px',
+  },
+  pageButtonDisabled: {
+    padding: '6px 12px',
+    border: '1px solid #e5e7eb',
+    borderRadius: '4px',
+    background: '#f3f4f6',
+    color: '#9ca3af',
+    cursor: 'not-allowed',
+    fontSize: '13px',
+  },
+  select: {
+    padding: '6px 8px',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    fontSize: '13px',
+  },
 };
 
 function formatNumber(n: number): string {
@@ -68,6 +108,16 @@ function formatCurrency(n: number): string {
 export default function DailyStatsTable({ dateRange, project, refreshKey }: DailyStatsTableProps) {
   const [data, setData] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(data.length / pageSize);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedData = data.slice(startIndex, startIndex + pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateRange, project, pageSize]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -124,7 +174,7 @@ export default function DailyStatsTable({ dateRange, project, refreshKey }: Dail
           </tr>
         </thead>
         <tbody>
-          {data.map((row) => (
+          {paginatedData.map((row) => (
             <tr key={row.date}>
               <td style={styles.td}>{row.date}</td>
               <td style={styles.tdRight}>{formatNumber(row.inputTokens)}</td>
@@ -138,6 +188,40 @@ export default function DailyStatsTable({ dateRange, project, refreshKey }: Dail
           ))}
         </tbody>
       </table>
+      {data.length > 0 && (
+        <div style={styles.pagination}>
+          <div>
+            Showing {startIndex + 1}-{Math.min(startIndex + pageSize, data.length)} of {data.length} days
+          </div>
+          <div style={styles.paginationControls}>
+            <span>Rows per page:</span>
+            <select
+              style={styles.select}
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+            <button
+              style={currentPage === 1 ? styles.pageButtonDisabled : styles.pageButton}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </button>
+            <span>Page {currentPage} of {totalPages || 1}</span>
+            <button
+              style={currentPage >= totalPages ? styles.pageButtonDisabled : styles.pageButton}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
