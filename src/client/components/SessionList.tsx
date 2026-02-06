@@ -290,6 +290,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
             <th style={styles.th}>Session</th>
             <th style={styles.th}>Project</th>
             <th style={styles.th}>Started</th>
+            <th style={styles.th}>Ended</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Input</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cache Write</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cache Read</th>
@@ -325,6 +326,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
                   </span>
                 </td>
                 <td style={styles.td}>{formatDateTime(session.startTime)}</td>
+                <td style={styles.td}>{formatDateTime(session.endTime)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.inputTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheCreationTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheReadTokens)}</td>
@@ -335,7 +337,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
               {expandedSessions.has(session.id) && (
                 loadingSubagents.has(session.id) ? (
                   <tr style={styles.subagentRow}>
-                    <td colSpan={9} style={styles.subagentTd}>Loading subagents...</td>
+                    <td colSpan={10} style={styles.subagentTd}>Loading subagents...</td>
                   </tr>
                 ) : (
                   (subagentData[session.id] || []).map((sub) => (
@@ -347,6 +349,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
                         <span style={{ fontSize: '12px', color: '#6b7280' }}>{sub.type || '-'}</span>
                       </td>
                       <td style={styles.subagentTd}>{formatDateTime(sub.startTime)}</td>
+                      <td style={styles.subagentTd}>{formatDateTime(sub.endTime)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.inputTokens)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.cacheCreationTokens)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.cacheReadTokens)}</td>

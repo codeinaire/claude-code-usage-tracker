@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface ProjectFilterProps {
   onChange: (project: string | null) => void;
   refreshKey?: number;
+  clearKey?: number;
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -31,9 +32,18 @@ function getProjectName(project: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : project;
 }
 
-export default function ProjectFilter({ onChange, refreshKey }: ProjectFilterProps) {
+export default function ProjectFilter({ onChange, refreshKey, clearKey }: ProjectFilterProps) {
   const [projects, setProjects] = useState<string[]>([]);
   const [selected, setSelected] = useState('');
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setSelected('');
+  }, [clearKey]);
 
   useEffect(() => {
     const fetchProjects = async () => {

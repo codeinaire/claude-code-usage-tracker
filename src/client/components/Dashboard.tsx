@@ -71,6 +71,7 @@ export default function Dashboard() {
   const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null)
   const [projectFilter, setProjectFilter] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [clearKey, setClearKey] = useState(0)
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -138,9 +139,31 @@ export default function Dashboard() {
       <AggregatedStatsCard summary={summary} />
 
       <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Table Filters</h2>
         <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-          <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} />
-          <DateRangePicker onChange={setDateRange} />
+          <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} clearKey={clearKey} />
+          <DateRangePicker onChange={setDateRange} clearKey={clearKey} />
+          {(projectFilter || dateRange) && (
+            <button
+              onClick={() => {
+                setProjectFilter(null)
+                setDateRange(null)
+                setClearKey((k) => k + 1)
+              }}
+              style={{
+                padding: '8px 16px',
+                background: '#f3f4f6',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                color: '#6b7280',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Clear filters
+            </button>
+          )}
         </div>
       </div>
 
