@@ -46,11 +46,21 @@ const styles: Record<string, React.CSSProperties> = {
   section: {
     marginBottom: '32px',
   },
-  sectionTitle: {
+  accordionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
     fontSize: '18px',
     fontWeight: 600,
-    marginBottom: '16px',
     color: '#1a1a1a',
+    cursor: 'pointer',
+    userSelect: 'none' as const,
+    marginBottom: '16px',
+  },
+  accordionArrow: {
+    fontSize: '12px',
+    color: '#6b7280',
+    transition: 'transform 0.2s',
   },
   error: {
     background: '#fef2f2',
@@ -72,6 +82,10 @@ export default function Dashboard() {
   const [projectFilter, setProjectFilter] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [clearKey, setClearKey] = useState(0)
+  const [statsOpen, setStatsOpen] = useState(true)
+  const [dailyOpen, setDailyOpen] = useState(true)
+  const [sessionsOpen, setSessionsOpen] = useState(true)
+  const [filtersOpen, setFiltersOpen] = useState(true)
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -136,45 +150,62 @@ export default function Dashboard() {
 
       {error && <div style={styles.error}>{error}</div>}
 
-      <AggregatedStatsCard summary={summary} />
-
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Table Filters</h2>
-        <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-          <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} clearKey={clearKey} />
-          <DateRangePicker onChange={setDateRange} clearKey={clearKey} />
-          {(projectFilter || dateRange) && (
-            <button
-              onClick={() => {
-                setProjectFilter(null)
-                setDateRange(null)
-                setClearKey((k) => k + 1)
-              }}
-              style={{
-                padding: '8px 16px',
-                background: '#f3f4f6',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                color: '#6b7280',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Clear filters
-            </button>
-          )}
+        <div style={styles.accordionHeader} onClick={() => setStatsOpen(!statsOpen)}>
+          <span style={{ ...styles.accordionArrow, transform: statsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          Aggregated Stats
         </div>
+        {statsOpen && <AggregatedStatsCard summary={summary} />}
       </div>
 
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Daily Usage</h2>
-        <DailyStatsTable dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />
+        <div style={styles.accordionHeader} onClick={() => setFiltersOpen(!filtersOpen)}>
+          <span style={{ ...styles.accordionArrow, transform: filtersOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          Filters
+        </div>
+        {filtersOpen && (
+          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+            <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} clearKey={clearKey} />
+            <DateRangePicker onChange={setDateRange} clearKey={clearKey} />
+            {(projectFilter || dateRange) && (
+              <button
+                onClick={() => {
+                  setProjectFilter(null)
+                  setDateRange(null)
+                  setClearKey((k) => k + 1)
+                }}
+                style={{
+                  padding: '8px 16px',
+                  background: '#f3f4f6',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#6b7280',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Sessions</h2>
-        <SessionList dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />
+        <div style={styles.accordionHeader} onClick={() => setDailyOpen(!dailyOpen)}>
+          <span style={{ ...styles.accordionArrow, transform: dailyOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          Daily Usage
+        </div>
+        {dailyOpen && <DailyStatsTable dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />}
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.accordionHeader} onClick={() => setSessionsOpen(!sessionsOpen)}>
+          <span style={{ ...styles.accordionArrow, transform: sessionsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          Sessions
+        </div>
+        {sessionsOpen && <SessionList dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />}
       </div>
     </div>
   )
