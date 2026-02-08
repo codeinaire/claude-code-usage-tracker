@@ -30,6 +30,7 @@ interface JsonlLine {
   sessionId?: string;
   timestamp?: string;
   version?: string;
+  customTitle?: string;
   message?: {
     id?: string;
     role?: string;
@@ -115,6 +116,7 @@ export function parseSessionFile(
   let lastTimestamp: string | null = null;
   let sessionModel: string | null = null;
   let sessionVersion: string | null = null;
+  let sessionCustomTitle: string | null = null;
 
   // Use a Map to deduplicate by message ID (streaming chunks have same ID)
   const messageDataMap = new Map<string, {
@@ -151,6 +153,11 @@ export function parseSessionFile(
         if (parsed.version && !sessionVersion) {
           sessionVersion = parsed.version;
         }
+      }
+
+      // Extract custom title
+      if (parsed.customTitle && !sessionCustomTitle) {
+        sessionCustomTitle = parsed.customTitle;
       }
 
       // Extract usage data from assistant messages
@@ -195,6 +202,7 @@ export function parseSessionFile(
         endTime: null,
         model: null,
         version: null,
+        customTitle: sessionCustomTitle,
       });
     }
 
@@ -233,6 +241,7 @@ export function parseSessionFile(
     endTime: lastTimestamp,
     model: sessionModel,
     version: sessionVersion,
+    customTitle: sessionCustomTitle,
   });
 
   const messages: Message[] = Array.from(messageDataMap.values()).map((data) => ({

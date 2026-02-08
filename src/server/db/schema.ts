@@ -34,6 +34,7 @@ function initializeSchema(db: Database.Database): void {
       end_time TEXT,
       model TEXT,
       version TEXT,
+      custom_title TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -93,4 +94,11 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_subagents_external_id ON subagents(external_id);
     CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id);
   `);
+
+  // Migration: add custom_title column for existing databases
+  try {
+    db.exec(`ALTER TABLE sessions ADD COLUMN custom_title TEXT`);
+  } catch {
+    // Column already exists
+  }
 }
