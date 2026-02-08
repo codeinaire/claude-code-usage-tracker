@@ -14,6 +14,7 @@ interface DailyStats {
 interface DailyStatsTableProps {
   dateRange: { from: string; to: string } | null;
   project?: string | null;
+  customTitle?: string | null;
   refreshKey?: number;
 }
 
@@ -105,7 +106,7 @@ function formatCurrency(n: number): string {
   return '$' + n.toFixed(2);
 }
 
-export default function DailyStatsTable({ dateRange, project, refreshKey }: DailyStatsTableProps) {
+export default function DailyStatsTable({ dateRange, project, customTitle, refreshKey }: DailyStatsTableProps) {
   const [data, setData] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageSize, setPageSize] = useState(25);
@@ -117,7 +118,7 @@ export default function DailyStatsTable({ dateRange, project, refreshKey }: Dail
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateRange, project, pageSize]);
+  }, [dateRange, project, customTitle, pageSize]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -130,6 +131,9 @@ export default function DailyStatsTable({ dateRange, project, refreshKey }: Dail
         }
         if (project) {
           params.set('project', project);
+        }
+        if (customTitle) {
+          params.set('customTitle', customTitle);
         }
         const qs = params.toString();
         const url = '/api/stats/daily' + (qs ? `?${qs}` : '');
@@ -144,7 +148,7 @@ export default function DailyStatsTable({ dateRange, project, refreshKey }: Dail
       }
     };
     fetchData();
-  }, [dateRange, project, refreshKey]);
+  }, [dateRange, project, customTitle, refreshKey]);
 
   if (loading) {
     return <div style={styles.container}><div style={styles.empty}>Loading...</div></div>;

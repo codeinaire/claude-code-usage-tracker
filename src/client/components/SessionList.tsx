@@ -4,6 +4,7 @@ interface Session {
   id: number;
   externalId: string;
   project: string | null;
+  customTitle: string | null;
   startTime: string | null;
   endTime: string | null;
   inputTokens: number;
@@ -32,6 +33,7 @@ interface Subagent {
 interface SessionListProps {
   dateRange: { from: string; to: string } | null;
   project?: string | null;
+  customTitle?: string | null;
   refreshKey?: number;
 }
 
@@ -161,6 +163,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     marginLeft: '6px',
   },
+  editableTitle: {
+    fontSize: '13px',
+    color: '#374151',
+    maxWidth: '200px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    cursor: 'pointer',
+    borderBottom: '1px dashed #d1d5db',
+  },
+  editableTitleEmpty: {
+    fontSize: '13px',
+    color: '#9ca3af',
+    cursor: 'pointer',
+    borderBottom: '1px dashed #d1d5db',
+    fontStyle: 'italic' as const,
+  },
+  titleInput: {
+    fontSize: '13px',
+    padding: '2px 6px',
+    border: '1px solid #2563eb',
+    borderRadius: '3px',
+    outline: 'none',
+    width: '160px',
+  },
 };
 
 function formatNumber(n: number): string {
@@ -195,7 +222,7 @@ function getProjectName(project: string | null): string {
   return parts.length > 0 ? parts[parts.length - 1] : '-';
 }
 
-export default function SessionList({ dateRange, project, refreshKey }: SessionListProps) {
+export default function SessionList({ dateRange, project, customTitle, refreshKey }: SessionListProps) {
   const [data, setData] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageSize, setPageSize] = useState(25);
@@ -203,6 +230,25 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(new Set());
   const [subagentData, setSubagentData] = useState<Record<number, Subagent[]>>({});
   const [loadingSubagents, setLoadingSubagents] = useState<Set<number>>(new Set());
+  const [editingTitleId, setEditingTitleId] = useState<number | null>(null);
+  const [editingTitleValue, setEditingTitleValue] = useState('');
+
+  const saveTitle = async (sessionId: number) => {
+    const trimmed = editingTitleValue.trim();
+    try {
+      await fetch(`/api/stats/sessions/${sessionId}/custom-title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customTitle: trimmed || null }),
+      });
+      setData((prev) =>
+        prev.map((s) => s.id === sessionId ? { ...s, customTitle: trimmed || null } : s)
+      );
+    } catch (err) {
+      console.error('Failed to update title:', err);
+    }
+    setEditingTitleId(null);
+  };
 
   const totalPages = Math.ceil(data.length / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
@@ -210,7 +256,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateRange, project, pageSize]);
+  }, [dateRange, project, customTitle, pageSize]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -223,6 +269,9 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
         }
         if (project) {
           params.set('project', project);
+        }
+        if (customTitle) {
+          params.set('customTitle', customTitle);
         }
         const qs = params.toString();
         const url = '/api/stats/sessions' + (qs ? `?${qs}` : '');
@@ -237,7 +286,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
       }
     };
     fetchData();
-  }, [dateRange, project, refreshKey]);
+  }, [dateRange, project, customTitle, refreshKey]);
 
   const toggleExpand = async (sessionId: number) => {
     const next = new Set(expandedSessions);
@@ -288,6 +337,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
         <thead>
           <tr>
             <th style={styles.th}>Session</th>
+            <th style={styles.th}>Title</th>
             <th style={styles.th}>Project</th>
             <th style={styles.th}>Started</th>
             <th style={styles.th}>Ended</th>
@@ -320,6 +370,32 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
                     <span style={styles.badge}>{session.subagentCount} sub</span>
                   )}
                 </td>
+                <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                  {editingTitleId === session.id ? (
+                    <input
+                      style={styles.titleInput}
+                      value={editingTitleValue}
+                      onChange={(e) => setEditingTitleValue(e.target.value)}
+                      onBlur={() => saveTitle(session.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveTitle(session.id);
+                        if (e.key === 'Escape') setEditingTitleId(null);
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    <span
+                      style={session.customTitle ? styles.editableTitle : styles.editableTitleEmpty}
+                      title={session.customTitle ? session.customTitle : 'Click to add title'}
+                      onClick={() => {
+                        setEditingTitleId(session.id);
+                        setEditingTitleValue(session.customTitle || '');
+                      }}
+                    >
+                      {session.customTitle || 'Add title'}
+                    </span>
+                  )}
+                </td>
                 <td style={styles.td}>
                   <span style={styles.project} title={session.project || undefined}>
                     {getProjectName(session.project)}
@@ -337,7 +413,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
               {expandedSessions.has(session.id) && (
                 loadingSubagents.has(session.id) ? (
                   <tr style={styles.subagentRow}>
-                    <td colSpan={10} style={styles.subagentTd}>Loading subagents...</td>
+                    <td colSpan={11} style={styles.subagentTd}>Loading subagents...</td>
                   </tr>
                 ) : (
                   (subagentData[session.id] || []).map((sub) => (
@@ -348,6 +424,7 @@ export default function SessionList({ dateRange, project, refreshKey }: SessionL
                       <td style={styles.subagentTd}>
                         <span style={{ fontSize: '12px', color: '#6b7280' }}>{sub.type || '-'}</span>
                       </td>
+                      <td style={styles.subagentTd}></td>
                       <td style={styles.subagentTd}>{formatDateTime(sub.startTime)}</td>
                       <td style={styles.subagentTd}>{formatDateTime(sub.endTime)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.inputTokens)}</td>

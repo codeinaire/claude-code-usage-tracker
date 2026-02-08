@@ -46,7 +46,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-code-usage-tracker/scripts/sync-on-exit.sh"
+            "command": "<path to claude code usage tracker>/sync-on-exit.sh"
           }
         ]
       }

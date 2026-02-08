@@ -51,6 +51,7 @@ export interface Session {
   endTime: string | null;
   model: string | null;
   version: string | null;
+  customTitle: string | null;
 }
 
 export interface Message {
@@ -68,8 +69,8 @@ export interface Message {
 export function upsertSession(session: Session): number {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO sessions (external_id, project, start_time, end_time, model, version)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (external_id, project, start_time, end_time, model, version, custom_title)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       project = COALESCE(excluded.project, project),
       start_time = COALESCE(
@@ -83,7 +84,8 @@ export function upsertSession(session: Session): number {
         end_time
       ),
       model = COALESCE(excluded.model, model),
-      version = COALESCE(excluded.version, version)
+      version = COALESCE(excluded.version, version),
+      custom_title = COALESCE(excluded.custom_title, custom_title)
     RETURNING id
   `);
   const result = stmt.get(
@@ -92,7 +94,8 @@ export function upsertSession(session: Session): number {
     session.startTime,
     session.endTime,
     session.model,
-    session.version
+    session.version,
+    session.customTitle
   ) as { id: number };
   return result.id;
 }
@@ -199,6 +202,7 @@ export interface SessionStats {
   id: number;
   externalId: string;
   project: string | null;
+  customTitle: string | null;
   startTime: string | null;
   endTime: string | null;
   inputTokens: number;
@@ -210,13 +214,14 @@ export interface SessionStats {
   subagentCount: number;
 }
 
-export function getSessionStats(from?: string, to?: string, project?: string): SessionStats[] {
+export function getSessionStats(from?: string, to?: string, project?: string, customTitle?: string): SessionStats[] {
   const db = getDb();
   let query = `
     SELECT
       s.id,
       s.external_id as externalId,
       s.project,
+      s.custom_title as customTitle,
       s.start_time as startTime,
       s.end_time as endTime,
       COALESCE(SUM(m.input_tokens), 0) as inputTokens,
@@ -245,6 +250,10 @@ export function getSessionStats(from?: string, to?: string, project?: string): S
     conditions.push('s.project = ?');
     params.push(project);
   }
+  if (customTitle) {
+    conditions.push('s.custom_title = ?');
+    params.push(customTitle);
+  }
 
   query += ' WHERE ' + conditions.join(' AND ');
 
@@ -264,7 +273,7 @@ export interface DailyStats {
   messageCount: number;
 }
 
-export function getDailyStats(from?: string, to?: string, project?: string): DailyStats[] {
+export function getDailyStats(from?: string, to?: string, project?: string, customTitle?: string): DailyStats[] {
   const db = getDb();
   let query = `
     SELECT
@@ -282,10 +291,16 @@ export function getDailyStats(from?: string, to?: string, project?: string): Dai
   const params: string[] = [];
   const conditions: string[] = [];
 
-  if (project) {
+  if (project || customTitle) {
     query += ' JOIN sessions s ON s.id = m.session_id';
-    conditions.push('s.project = ?');
-    params.push(project);
+    if (project) {
+      conditions.push('s.project = ?');
+      params.push(project);
+    }
+    if (customTitle) {
+      conditions.push('s.custom_title = ?');
+      params.push(customTitle);
+    }
   }
 
   if (from) {
@@ -318,12 +333,22 @@ export interface Summary {
   lastSession: string | null;
 }
 
-export function getSummary(project?: string): Summary {
+export function getSummary(project?: string, customTitle?: string): Summary {
   const db = getDb();
 
-  const projectJoin = project ? ' JOIN sessions s ON s.id = m.session_id' : '';
-  const projectWhere = project ? ' WHERE s.project = ?' : '';
-  const statsParams = project ? [project] : [];
+  const needsJoin = project || customTitle;
+  const sessionJoin = needsJoin ? ' JOIN sessions s ON s.id = m.session_id' : '';
+  const statsConditions: string[] = [];
+  const statsParams: string[] = [];
+  if (project) {
+    statsConditions.push('s.project = ?');
+    statsParams.push(project);
+  }
+  if (customTitle) {
+    statsConditions.push('s.custom_title = ?');
+    statsParams.push(customTitle);
+  }
+  const statsWhere = statsConditions.length > 0 ? ' WHERE ' + statsConditions.join(' AND ') : '';
 
   const stats = db
     .prepare(
@@ -335,7 +360,7 @@ export function getSummary(project?: string): Summary {
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as totalCostUsd,
       COALESCE(SUM(${MESSAGE_COST_NO_CACHE_SQL}), 0) as costWithoutCacheUsd
-    FROM messages m${projectJoin}${projectWhere}
+    FROM messages m${sessionJoin}${statsWhere}
   `
     )
     .get(...statsParams) as {
@@ -352,6 +377,10 @@ export function getSummary(project?: string): Summary {
   if (project) {
     sessionConditions.push('project = ?');
     sessionParams.push(project);
+  }
+  if (customTitle) {
+    sessionConditions.push('custom_title = ?');
+    sessionParams.push(customTitle);
   }
 
   const sessionStats = db
@@ -391,6 +420,16 @@ export function getProjects(): string[] {
     )
     .all() as { project: string }[];
   return rows.map((r) => r.project);
+}
+
+export function getCustomTitles(): string[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT custom_title FROM sessions WHERE custom_title IS NOT NULL AND external_id NOT LIKE 'agent-%' ORDER BY custom_title`
+    )
+    .all() as { custom_title: string }[];
+  return rows.map((r) => r.custom_title);
 }
 
 export interface SubagentStats {
@@ -442,6 +481,11 @@ export function cleanupOrphanedSubagentSessions(): void {
   `).run();
   // Delete the orphaned session entries themselves
   db.prepare(`DELETE FROM sessions WHERE external_id LIKE 'agent-%'`).run();
+}
+
+export function updateSessionCustomTitle(sessionId: number, customTitle: string | null): void {
+  const db = getDb();
+  db.prepare('UPDATE sessions SET custom_title = ? WHERE id = ?').run(customTitle, sessionId);
 }
 
 export function clearSessionMessages(sessionId: number): void {

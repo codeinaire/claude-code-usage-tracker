@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import DateRangePicker from './DateRangePicker'
 import ProjectFilter from './ProjectFilter'
+import CustomTitleFilter from './CustomTitleFilter'
 import DailyStatsTable from './DailyStatsTable'
 import SessionList from './SessionList'
 import AggregatedStatsCard from './AggregatedStatsCard'
@@ -117,6 +118,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null)
   const [projectFilter, setProjectFilter] = useState<string | null>(null)
+  const [customTitleFilter, setCustomTitleFilter] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [clearKey, setClearKey] = useState(0)
   const [statsOpen, setStatsOpen] = useState(true)
@@ -144,6 +146,9 @@ export default function Dashboard() {
     }
     if (projectFilter) {
       params.set('project', projectFilter)
+    }
+    if (customTitleFilter) {
+      params.set('customTitle', customTitleFilter)
     }
     return params.toString()
   }
@@ -197,10 +202,15 @@ export default function Dashboard() {
 
   const fetchSummary = useCallback(async () => {
     try {
-      let url = '/api/stats/summary'
+      const params = new URLSearchParams()
       if (projectFilter) {
-        url += `?project=${encodeURIComponent(projectFilter)}`
+        params.set('project', projectFilter)
       }
+      if (customTitleFilter) {
+        params.set('customTitle', customTitleFilter)
+      }
+      const qs = params.toString()
+      const url = '/api/stats/summary' + (qs ? `?${qs}` : '')
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to fetch summary')
       const data = await res.json()
@@ -211,7 +221,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [projectFilter])
+  }, [projectFilter, customTitleFilter])
 
   useEffect(() => {
     fetchSummary()
@@ -290,11 +300,13 @@ export default function Dashboard() {
         {filtersOpen && (
           <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
             <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} clearKey={clearKey} />
+            <CustomTitleFilter onChange={setCustomTitleFilter} refreshKey={refreshKey} clearKey={clearKey} />
             <DateRangePicker onChange={setDateRange} clearKey={clearKey} />
-            {(projectFilter || dateRange) && (
+            {(projectFilter || customTitleFilter || dateRange) && (
               <button
                 onClick={() => {
                   setProjectFilter(null)
+                  setCustomTitleFilter(null)
                   setDateRange(null)
                   setClearKey((k) => k + 1)
                 }}
@@ -321,7 +333,7 @@ export default function Dashboard() {
           <span style={{ ...styles.accordionArrow, transform: dailyOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
           Daily Usage
         </div>
-        {dailyOpen && <DailyStatsTable dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />}
+        {dailyOpen && <DailyStatsTable dateRange={dateRange} project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
       </div>
 
       <div style={styles.section}>
@@ -329,7 +341,7 @@ export default function Dashboard() {
           <span style={{ ...styles.accordionArrow, transform: sessionsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
           Sessions
         </div>
-        {sessionsOpen && <SessionList dateRange={dateRange} project={projectFilter} refreshKey={refreshKey} />}
+        {sessionsOpen && <SessionList dateRange={dateRange} project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { getSessionStats, getDailyStats, getSummary, getSubagentsBySessionId, getProjects } from '../db/queries.js';
+import { getSessionStats, getDailyStats, getSummary, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle } from '../db/queries.js';
 
 const router = Router();
 
@@ -16,11 +16,24 @@ router.get('/projects', (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/stats/custom-titles - List distinct custom titles
+router.get('/custom-titles', (_req: Request, res: Response) => {
+  try {
+    const customTitles = getCustomTitles();
+    res.json({ customTitles });
+  } catch (error) {
+    console.error('Get custom titles error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 // GET /api/stats/sessions - List sessions with aggregated totals
 router.get('/sessions', (req: Request, res: Response) => {
   try {
-    const { from, to, project } = req.query as { from?: string; to?: string; project?: string };
-    const sessions = getSessionStats(from, to, project);
+    const { from, to, project, customTitle } = req.query as { from?: string; to?: string; project?: string; customTitle?: string };
+    const sessions = getSessionStats(from, to, project, customTitle);
     res.json({ sessions });
   } catch (error) {
     console.error('Get sessions error:', error);
@@ -33,8 +46,8 @@ router.get('/sessions', (req: Request, res: Response) => {
 // GET /api/stats/daily - Daily aggregated stats
 router.get('/daily', (req: Request, res: Response) => {
   try {
-    const { from, to, project } = req.query as { from?: string; to?: string; project?: string };
-    const daily = getDailyStats(from, to, project);
+    const { from, to, project, customTitle } = req.query as { from?: string; to?: string; project?: string; customTitle?: string };
+    const daily = getDailyStats(from, to, project, customTitle);
     res.json({ daily });
   } catch (error) {
     console.error('Get daily stats error:', error);
@@ -47,8 +60,8 @@ router.get('/daily', (req: Request, res: Response) => {
 // GET /api/stats/summary - Overall summary
 router.get('/summary', (req: Request, res: Response) => {
   try {
-    const { project } = req.query as { project?: string };
-    const summary = getSummary(project);
+    const { project, customTitle } = req.query as { project?: string; customTitle?: string };
+    const summary = getSummary(project, customTitle);
     res.json(summary);
   } catch (error) {
     console.error('Get summary error:', error);
@@ -61,7 +74,7 @@ router.get('/summary', (req: Request, res: Response) => {
 // GET /api/stats/sessions/:id/subagents - Subagents for a session
 router.get('/sessions/:id/subagents', (req: Request, res: Response) => {
   try {
-    const sessionId = parseInt(req.params.id, 10);
+    const sessionId = parseInt(req.params.id as string, 10);
     if (isNaN(sessionId)) {
       res.status(400).json({ error: 'Invalid session ID' });
       return;
@@ -70,6 +83,26 @@ router.get('/sessions/:id/subagents', (req: Request, res: Response) => {
     res.json({ subagents });
   } catch (error) {
     console.error('Get subagents error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// PATCH /api/stats/sessions/:id/custom-title - Update a session's custom title
+router.patch('/sessions/:id/custom-title', (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.id as string, 10);
+    if (isNaN(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+    const { customTitle } = req.body as { customTitle?: string | null };
+    const title = customTitle?.trim() || null;
+    updateSessionCustomTitle(sessionId, title);
+    res.json({ ok: true, customTitle: title });
+  } catch (error) {
+    console.error('Update custom title error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
     });
