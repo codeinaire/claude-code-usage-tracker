@@ -23,6 +23,11 @@ export function closeDb(): void {
   }
 }
 
+export function setDb(database: Database.Database): void {
+  db = database;
+  initializeSchema(db);
+}
+
 function initializeSchema(db: Database.Database): void {
   db.exec(`
     -- Sessions table: one row per Claude Code session

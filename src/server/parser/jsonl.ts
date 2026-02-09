@@ -255,7 +255,26 @@ export function parseSessionFile(
   }
 
   updateSyncState(filePath, stats.size);
-  return { sessionExternalId, messagesImported: messages.length, project };
+
+  // After parsing a main session file, also sync any subagent files
+  let subagentMessages = 0;
+  const subagentDir = path.join(path.dirname(filePath), sessionExternalId, 'subagents');
+  if (fs.existsSync(subagentDir)) {
+    const subagentFiles = fs.readdirSync(subagentDir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => path.join(subagentDir, f));
+
+    for (const subFile of subagentFiles) {
+      try {
+        const subResult = parseSessionFile(subFile, incrementalSync);
+        subagentMessages += subResult.messagesImported;
+      } catch (error) {
+        console.error(`Error parsing subagent file ${subFile}:`, error);
+      }
+    }
+  }
+
+  return { sessionExternalId, messagesImported: messages.length + subagentMessages, project };
 }
 
 export function findAllSessionFiles(): string[] {
