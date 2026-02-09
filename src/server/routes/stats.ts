@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { getSessionStats, getDailyStats, getSummary, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle } from '../db/queries.js';
+import { getSessionStats, getDailyStats, getSummary, getMonthlyCosts, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle } from '../db/queries.js';
 
 const router = Router();
 
@@ -65,6 +65,20 @@ router.get('/summary', (req: Request, res: Response) => {
     res.json(summary);
   } catch (error) {
     console.error('Get summary error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/stats/monthly - Monthly costs for subscription comparison
+router.get('/monthly', (req: Request, res: Response) => {
+  try {
+    const { project, customTitle } = req.query as { project?: string; customTitle?: string };
+    const monthly = getMonthlyCosts(project, customTitle);
+    res.json({ monthly });
+  } catch (error) {
+    console.error('Get monthly costs error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
     });

@@ -5,6 +5,7 @@ import CustomTitleFilter from './CustomTitleFilter'
 import DailyStatsTable from './DailyStatsTable'
 import SessionList from './SessionList'
 import AggregatedStatsCard from './AggregatedStatsCard'
+import SubscriptionComparison from './SubscriptionComparison'
 
 interface Summary {
   inputTokens: number
@@ -125,6 +126,7 @@ export default function Dashboard() {
   const [dailyOpen, setDailyOpen] = useState(true)
   const [sessionsOpen, setSessionsOpen] = useState(true)
   const [filtersOpen, setFiltersOpen] = useState(true)
+  const [subscriptionOpen, setSubscriptionOpen] = useState(true)
   const [exportOpen, setExportOpen] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
 
@@ -290,6 +292,14 @@ export default function Dashboard() {
           Aggregated Stats
         </div>
         {statsOpen && <AggregatedStatsCard summary={summary} />}
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.accordionHeader} onClick={() => setSubscriptionOpen(!subscriptionOpen)}>
+          <span style={{ ...styles.accordionArrow, transform: subscriptionOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          Subscription vs API Cost
+        </div>
+        {subscriptionOpen && <SubscriptionComparison project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
       </div>
 
       <div style={styles.section}>
