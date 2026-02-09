@@ -470,6 +470,56 @@ export function getSubagentsBySessionId(sessionId: number): SubagentStats[] {
   return db.prepare(query).all(sessionId) as SubagentStats[];
 }
 
+export interface MonthlyCost {
+  month: string;
+  apiCostUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  sessionCount: number;
+  messageCount: number;
+}
+
+export function getMonthlyCosts(project?: string, customTitle?: string): MonthlyCost[] {
+  const db = getDb();
+  let query = `
+    SELECT
+      strftime('%Y-%m', m.timestamp) as month,
+      COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as apiCostUsd,
+      COALESCE(SUM(m.input_tokens), 0) as inputTokens,
+      COALESCE(SUM(m.output_tokens), 0) as outputTokens,
+      COALESCE(SUM(m.cache_creation_input_tokens), 0) as cacheCreationTokens,
+      COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
+      COUNT(DISTINCT m.session_id) as sessionCount,
+      COUNT(m.id) as messageCount
+    FROM messages m
+  `;
+
+  const params: string[] = [];
+  const conditions: string[] = [];
+
+  if (project || customTitle) {
+    query += ' JOIN sessions s ON s.id = m.session_id';
+    if (project) {
+      conditions.push('s.project = ?');
+      params.push(project);
+    }
+    if (customTitle) {
+      conditions.push('s.custom_title = ?');
+      params.push(customTitle);
+    }
+  }
+
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
+  }
+
+  query += " GROUP BY strftime('%Y-%m', m.timestamp) ORDER BY month ASC";
+
+  return db.prepare(query).all(...params) as MonthlyCost[];
+}
+
 export function cleanupOrphanedSubagentSessions(): void {
   const db = getDb();
   // Delete messages for sessions whose external_id looks like a subagent
