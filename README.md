@@ -168,7 +168,19 @@ claude-code-usage-tracker/
 - npm
 - jq (optional, for the sync script - falls back to grep/sed)
 
+## UI
+
+Much to be improved!
+
+<img width="2054" height="1554" alt="image" src="https://github.com/user-attachments/assets/71c9d0ca-89bb-47fc-bd3f-54417bfa34df" />
+
+<img width="2396" height="796" alt="image" src="https://github.com/user-attachments/assets/4c2ceb40-b422-4741-ab67-8e37e599a66e" />
+
+<img width="2394" height="1462" alt="image" src="https://github.com/user-attachments/assets/bfcd6997-473d-4366-a8c4-f562d84f8cfc" />
+
+<img width="2432" height="1632" alt="image" src="https://github.com/user-attachments/assets/631d39eb-4060-43b5-82ab-bf0d1b54ccc2" />
+
+
 ## TODO
 
-- Add unit tests to check validity of numbers
 - Refactor
