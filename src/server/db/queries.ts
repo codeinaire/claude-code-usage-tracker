@@ -333,7 +333,7 @@ export interface Summary {
   lastSession: string | null;
 }
 
-export function getSummary(project?: string, customTitle?: string): Summary {
+export function getSummary(from?: string, to?: string, project?: string, customTitle?: string): Summary {
   const db = getDb();
 
   const needsJoin = project || customTitle;
@@ -347,6 +347,14 @@ export function getSummary(project?: string, customTitle?: string): Summary {
   if (customTitle) {
     statsConditions.push('s.custom_title = ?');
     statsParams.push(customTitle);
+  }
+  if (from) {
+    statsConditions.push('date(m.timestamp) >= ?');
+    statsParams.push(from);
+  }
+  if (to) {
+    statsConditions.push('date(m.timestamp) <= ?');
+    statsParams.push(to);
   }
   const statsWhere = statsConditions.length > 0 ? ' WHERE ' + statsConditions.join(' AND ') : '';
 
@@ -381,6 +389,14 @@ export function getSummary(project?: string, customTitle?: string): Summary {
   if (customTitle) {
     sessionConditions.push('custom_title = ?');
     sessionParams.push(customTitle);
+  }
+  if (from) {
+    sessionConditions.push('start_time >= ?');
+    sessionParams.push(from);
+  }
+  if (to) {
+    sessionConditions.push('start_time <= ?');
+    sessionParams.push(to);
   }
 
   const sessionStats = db
