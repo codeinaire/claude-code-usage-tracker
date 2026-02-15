@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { getSessionStats, getDailyStats, getSummary, getMonthlyCosts, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle } from '../db/queries.js';
+import { getSessionStats, getDailyStats, getSummary, getMonthlyCosts, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle, deleteSession } from '../db/queries.js';
 
 const router = Router();
 
@@ -74,8 +74,8 @@ router.get('/summary', (req: Request, res: Response) => {
 // GET /api/stats/monthly - Monthly costs for subscription comparison
 router.get('/monthly', (req: Request, res: Response) => {
   try {
-    const { project, customTitle } = req.query as { project?: string; customTitle?: string };
-    const monthly = getMonthlyCosts(project, customTitle);
+    const { from, to, project, customTitle } = req.query as { from?: string; to?: string; project?: string; customTitle?: string };
+    const monthly = getMonthlyCosts(from, to, project, customTitle);
     res.json({ monthly });
   } catch (error) {
     console.error('Get monthly costs error:', error);

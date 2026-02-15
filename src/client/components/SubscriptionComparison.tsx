@@ -8,6 +8,7 @@ interface MonthlyCost {
 }
 
 interface SubscriptionComparisonProps {
+  dateRange: { from: string; to: string } | null
   project: string | null
   customTitle: string | null
   refreshKey: number
@@ -122,12 +123,16 @@ function formatMonth(month: string): string {
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
 }
 
-export default function SubscriptionComparison({ project, customTitle, refreshKey }: SubscriptionComparisonProps) {
+export default function SubscriptionComparison({ dateRange, project, customTitle, refreshKey }: SubscriptionComparisonProps) {
   const [monthly, setMonthly] = useState<MonthlyCost[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams()
+    if (dateRange) {
+      params.set('from', dateRange.from)
+      params.set('to', dateRange.to)
+    }
     if (project) params.set('project', project)
     if (customTitle) params.set('customTitle', customTitle)
     const qs = params.toString()
@@ -138,7 +143,7 @@ export default function SubscriptionComparison({ project, customTitle, refreshKe
       .then((data) => setMonthly(data.monthly))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [project, customTitle, refreshKey])
+  }, [dateRange, project, customTitle, refreshKey])
 
   if (loading) return <div>Loading...</div>
   if (monthly.length === 0) return <div style={{ color: '#6b7280' }}>No monthly data available.</div>
