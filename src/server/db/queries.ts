@@ -481,7 +481,7 @@ export interface MonthlyCost {
   messageCount: number;
 }
 
-export function getMonthlyCosts(project?: string, customTitle?: string): MonthlyCost[] {
+export function getMonthlyCosts(from?: string, to?: string, project?: string, customTitle?: string): MonthlyCost[] {
   const db = getDb();
   let query = `
     SELECT
@@ -511,6 +511,15 @@ export function getMonthlyCosts(project?: string, customTitle?: string): Monthly
     }
   }
 
+  if (from) {
+    conditions.push('date(m.timestamp) >= ?');
+    params.push(from);
+  }
+  if (to) {
+    conditions.push('date(m.timestamp) <= ?');
+    params.push(to);
+  }
+
   if (conditions.length > 0) {
     query += ' WHERE ' + conditions.join(' AND ');
   }
@@ -518,6 +527,36 @@ export function getMonthlyCosts(project?: string, customTitle?: string): Monthly
   query += " GROUP BY strftime('%Y-%m', m.timestamp) ORDER BY month ASC";
 
   return db.prepare(query).all(...params) as MonthlyCost[];
+}
+
+export function getSetting(key: string): string | null {
+  const db = getDb();
+  const row = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get(key) as { value: string } | undefined;
+  return row ? row.value : null;
+}
+
+export function setSetting(key: string, value: string | null): void {
+  const db = getDb();
+  if (value === null) {
+    db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  } else {
+    db.prepare(`
+      INSERT INTO settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(key, value);
+  }
+}
+
+export function getAllSettings(): Record<string, string> {
+  const db = getDb();
+  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    result[row.key] = row.value;
+  }
+  return result;
 }
 
 export function cleanupOrphanedSubagentSessions(): void {
@@ -536,6 +575,16 @@ export function cleanupOrphanedSubagentSessions(): void {
 export function updateSessionCustomTitle(sessionId: number, customTitle: string | null): void {
   const db = getDb();
   db.prepare('UPDATE sessions SET custom_title = ? WHERE id = ?').run(customTitle, sessionId);
+}
+
+export function deleteSession(sessionId: number): void {
+  const db = getDb();
+  const del = db.transaction(() => {
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM subagents WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  });
+  del();
 }
 
 export function clearSessionMessages(sessionId: number): void {

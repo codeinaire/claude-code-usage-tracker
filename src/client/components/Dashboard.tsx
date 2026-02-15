@@ -6,6 +6,7 @@ import DailyStatsTable from './DailyStatsTable'
 import SessionList from './SessionList'
 import AggregatedStatsCard from './AggregatedStatsCard'
 import SubscriptionComparison from './SubscriptionComparison'
+import BillingCycleDropdown from './BillingCycleDropdown'
 
 interface Summary {
   inputTokens: number
@@ -205,6 +206,10 @@ export default function Dashboard() {
   const fetchSummary = useCallback(async () => {
     try {
       const params = new URLSearchParams()
+      if (dateRange) {
+        params.set('from', dateRange.from)
+        params.set('to', dateRange.to)
+      }
       if (projectFilter) {
         params.set('project', projectFilter)
       }
@@ -223,7 +228,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [projectFilter, customTitleFilter])
+  }, [dateRange, projectFilter, customTitleFilter])
 
   useEffect(() => {
     fetchSummary()
@@ -281,6 +286,16 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+        <BillingCycleDropdown
+          onReset={(from, to) => {
+            setDateRange({ from, to })
+            setClearKey((k) => k + 1)
+          }}
+          onClear={() => {
+            setDateRange(null)
+            setClearKey((k) => k + 1)
+          }}
+        />
         {syncStatus && <span style={styles.status}>{syncStatus}</span>}
       </div>
 
@@ -299,7 +314,7 @@ export default function Dashboard() {
           <span style={{ ...styles.accordionArrow, transform: subscriptionOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
           Subscription vs API Cost
         </div>
-        {subscriptionOpen && <SubscriptionComparison project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
+        {subscriptionOpen && <SubscriptionComparison dateRange={dateRange} project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
       </div>
 
       <div style={styles.section}>
