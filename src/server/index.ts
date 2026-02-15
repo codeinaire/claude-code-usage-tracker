@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import syncRoutes from './routes/sync.js'
 import statsRoutes from './routes/stats.js'
+import settingsRoutes from './routes/settings.js'
 import { getDb, closeDb } from './db/schema.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -19,6 +20,7 @@ getDb()
 // API Routes
 app.use('/api/sync', syncRoutes)
 app.use('/api/stats', statsRoutes)
+app.use('/api/settings', settingsRoutes)
 
 // Health check
 app.get('/api/health', (_req, res) => {

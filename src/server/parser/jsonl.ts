@@ -186,6 +186,12 @@ export function parseSessionFile(
   }
 
   if (isSubagent) {
+    // Skip subagent files with zero messages (no API calls / no usage data)
+    if (messageDataMap.size === 0) {
+      updateSyncState(filePath, stats.size);
+      return { sessionExternalId, messagesImported: 0, project };
+    }
+
     // Route into subagents table
     const parentExternalId = extractParentSessionExternalId(filePath);
     if (!parentExternalId) {
@@ -231,6 +237,12 @@ export function parseSessionFile(
 
     updateSyncState(filePath, stats.size);
     return { sessionExternalId, messagesImported: messages.length, project };
+  }
+
+  // Skip session files with zero messages (no API calls / no usage data)
+  if (messageDataMap.size === 0) {
+    updateSyncState(filePath, stats.size);
+    return { sessionExternalId, messagesImported: 0, project };
   }
 
   // Regular session file

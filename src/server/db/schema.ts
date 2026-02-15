@@ -98,6 +98,12 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_subagents_session ON subagents(session_id);
     CREATE INDEX IF NOT EXISTS idx_subagents_external_id ON subagents(external_id);
     CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id);
+
+    -- App settings (key/value store)
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   // Migration: add custom_title column for existing databases

@@ -60,8 +60,8 @@ router.get('/daily', (req: Request, res: Response) => {
 // GET /api/stats/summary - Overall summary
 router.get('/summary', (req: Request, res: Response) => {
   try {
-    const { project, customTitle } = req.query as { project?: string; customTitle?: string };
-    const summary = getSummary(project, customTitle);
+    const { from, to, project, customTitle } = req.query as { from?: string; to?: string; project?: string; customTitle?: string };
+    const summary = getSummary(from, to, project, customTitle);
     res.json(summary);
   } catch (error) {
     console.error('Get summary error:', error);
@@ -117,6 +117,24 @@ router.patch('/sessions/:id/custom-title', (req: Request, res: Response) => {
     res.json({ ok: true, customTitle: title });
   } catch (error) {
     console.error('Update custom title error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// DELETE /api/stats/sessions/:id - Delete a session and all its data
+router.delete('/sessions/:id', (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.id as string, 10);
+    if (isNaN(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+    deleteSession(sessionId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Delete session error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
     });

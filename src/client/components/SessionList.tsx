@@ -87,6 +87,7 @@ const styles: Record<string, React.CSSProperties> = {
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
+    tableLayout: 'fixed' as const,
   },
   th: {
     textAlign: 'left' as const,
@@ -102,6 +103,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 16px',
     borderBottom: '1px solid #f3f4f6',
     fontSize: '14px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
   },
   tdRight: {
     padding: '12px 16px',
@@ -110,18 +114,34 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'right' as const,
     fontVariantNumeric: 'tabular-nums',
   },
+  sessionCell: {
+    padding: '12px 16px',
+    borderBottom: '1px solid #f3f4f6',
+    fontSize: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    overflow: 'hidden',
+  },
   sessionId: {
     fontFamily: 'monospace',
     fontSize: '12px',
     color: '#6b7280',
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
   },
   project: {
     fontSize: '13px',
     color: '#374151',
-    maxWidth: '200px',
+    display: 'inline-block',
+    maxWidth: '100%',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
+    verticalAlign: 'middle',
   },
   empty: {
     padding: '24px',
@@ -135,6 +155,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     padding: '0 4px',
     color: '#6b7280',
+    flexShrink: 0,
   },
   subagentRow: {
     background: '#f9fafb',
@@ -161,17 +182,29 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#4338ca',
     fontSize: '11px',
     fontWeight: 500,
-    marginLeft: '6px',
+    flexShrink: 0,
+  },
+  deleteButton: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '16px',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    color: '#9ca3af',
+    transition: 'color 0.15s, background 0.15s',
   },
   editableTitle: {
     fontSize: '13px',
     color: '#374151',
-    maxWidth: '200px',
+    display: 'inline-block',
+    maxWidth: '100%',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
     cursor: 'pointer',
     borderBottom: '1px dashed #d1d5db',
+    verticalAlign: 'middle',
   },
   editableTitleEmpty: {
     fontSize: '13px',
@@ -214,6 +247,37 @@ function formatDateTime(iso: string | null): string {
   }
 }
 
+function formatFullDateTime(iso: string | null): string {
+  if (!iso) return '';
+  try {
+    const date = new Date(iso);
+    return date.toLocaleString(undefined, {
+      year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      timeZoneName: 'short',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatDuration(startTime: string | null, endTime: string | null): string {
+  if (!startTime || !endTime) return '-';
+  try {
+    const start = new Date(startTime).getTime();
+    const end = new Date(endTime).getTime();
+    if (isNaN(start) || isNaN(end) || end < start) return '-';
+    const minutes = Math.round((end - start) / 60000);
+    if (minutes < 1) return '<1m';
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `${hours}h ${remainingMinutes}m`;
+  } catch {
+    return '-';
+  }
+}
+
 function getProjectName(project: string | null): string {
   if (!project) return '-';
   // Remove trailing slash and get the last segment (project name)
@@ -248,6 +312,22 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
       console.error('Failed to update title:', err);
     }
     setEditingTitleId(null);
+  };
+
+  const handleDelete = async (sessionId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this session and all its subagents?')) return;
+    try {
+      await fetch(`/api/stats/sessions/${sessionId}`, { method: 'DELETE' });
+      setData((prev) => prev.filter((s) => s.id !== sessionId));
+      setExpandedSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
   };
 
   const totalPages = Math.ceil(data.length / pageSize);
@@ -336,17 +416,19 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
       <table style={styles.table}>
         <thead>
           <tr>
-            <th style={styles.th}>Session</th>
-            <th style={styles.th}>Title</th>
-            <th style={styles.th}>Project</th>
+            <th style={{ ...styles.th, width: '12%' }}>Session</th>
+            <th style={{ ...styles.th, width: '14%' }}>Title</th>
+            <th style={{ ...styles.th, width: '10%' }}>Project</th>
             <th style={styles.th}>Started</th>
             <th style={styles.th}>Ended</th>
+            <th style={{ ...styles.th, textAlign: 'right' }}>Duration</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Input</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cache Write</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cache Read</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Output</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Messages</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cost</th>
+            <th style={{ ...styles.th, width: '56px' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -356,7 +438,7 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                 style={session.subagentCount > 0 ? { cursor: 'pointer' } : undefined}
                 onClick={session.subagentCount > 0 ? () => toggleExpand(session.id) : undefined}
               >
-                <td style={styles.td}>
+                <td style={styles.sessionCell}>
                   {session.subagentCount > 0 && (
                     <button
                       style={styles.expandButton}
@@ -365,7 +447,7 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                       {expandedSessions.has(session.id) ? '\u25BC' : '\u25B6'}
                     </button>
                   )}
-                  <span style={styles.sessionId}>{session.externalId.slice(0, 8)}...</span>
+                  <span style={styles.sessionId} title={session.externalId}>{session.externalId.slice(0, 8)}...</span>
                   {session.subagentCount > 0 && (
                     <span style={styles.badge}>{session.subagentCount} sub</span>
                   )}
@@ -401,19 +483,31 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                     {getProjectName(session.project)}
                   </span>
                 </td>
-                <td style={styles.td}>{formatDateTime(session.startTime)}</td>
-                <td style={styles.td}>{formatDateTime(session.endTime)}</td>
+                <td style={styles.td} title={formatFullDateTime(session.startTime)}>{formatDateTime(session.startTime)}</td>
+                <td style={styles.td} title={formatFullDateTime(session.endTime)}>{formatDateTime(session.endTime)}</td>
+                <td style={styles.tdRight}>{formatDuration(session.startTime, session.endTime)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.inputTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheCreationTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheReadTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.outputTokens)}</td>
                 <td style={styles.tdRight}>{session.messageCount}</td>
                 <td style={styles.tdRight}>{formatCurrency(session.estimatedCostUsd)}</td>
+                <td style={styles.td}>
+                  <button
+                    style={styles.deleteButton}
+                    title="Delete session"
+                    onClick={(e) => handleDelete(session.id, e)}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = '#fef2f2'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'none'; }}
+                  >
+                    &#x1F5D1;
+                  </button>
+                </td>
               </tr>
               {expandedSessions.has(session.id) && (
                 loadingSubagents.has(session.id) ? (
                   <tr style={styles.subagentRow}>
-                    <td colSpan={11} style={styles.subagentTd}>Loading subagents...</td>
+                    <td colSpan={13} style={styles.subagentTd}>Loading subagents...</td>
                   </tr>
                 ) : (
                   (subagentData[session.id] || []).map((sub) => (
@@ -425,14 +519,16 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                         <span style={{ fontSize: '12px', color: '#6b7280' }}>{sub.type || '-'}</span>
                       </td>
                       <td style={styles.subagentTd}></td>
-                      <td style={styles.subagentTd}>{formatDateTime(sub.startTime)}</td>
-                      <td style={styles.subagentTd}>{formatDateTime(sub.endTime)}</td>
+                      <td style={styles.subagentTd} title={formatFullDateTime(sub.startTime)}>{formatDateTime(sub.startTime)}</td>
+                      <td style={styles.subagentTd} title={formatFullDateTime(sub.endTime)}>{formatDateTime(sub.endTime)}</td>
+                      <td style={styles.subagentTdRight}>{formatDuration(sub.startTime, sub.endTime)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.inputTokens)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.cacheCreationTokens)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.cacheReadTokens)}</td>
                       <td style={styles.subagentTdRight}>{formatNumber(sub.outputTokens)}</td>
                       <td style={styles.subagentTdRight}>{sub.messageCount}</td>
                       <td style={styles.subagentTdRight}>{formatCurrency(sub.estimatedCostUsd)}</td>
+                      <td style={styles.subagentTd}></td>
                     </tr>
                   ))
                 )
