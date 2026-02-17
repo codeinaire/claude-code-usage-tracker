@@ -170,12 +170,14 @@ export default function Dashboard() {
     if (rows.length === 0) return ''
     const headers = Object.keys(rows[0])
     const lines = rows.map((row) =>
-      headers.map((h) => {
-        const val = String(row[h] ?? '')
-        return val.includes(',') || val.includes('"') || val.includes('\n')
-          ? `"${val.replace(/"/g, '""')}"`
-          : val
-      }).join(','),
+      headers
+        .map((h) => {
+          const val = String(row[h] ?? '')
+          return val.includes(',') || val.includes('"') || val.includes('\n')
+            ? `"${val.replace(/"/g, '""')}"`
+            : val
+        })
+        .join(','),
     )
     return [headers.join(','), ...lines].join('\n')
   }
@@ -271,18 +273,43 @@ export default function Dashboard() {
           {syncing ? 'Syncing...' : 'Sync All Sessions'}
         </button>
         <div style={styles.exportWrapper} ref={exportRef}>
-          <button
-            style={styles.exportButton}
-            onClick={() => setExportOpen(!exportOpen)}
-          >
+          <button style={styles.exportButton} onClick={() => setExportOpen(!exportOpen)}>
             Export &#9662;
           </button>
           {exportOpen && (
             <div style={styles.exportMenu}>
-              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('daily', 'csv')}>Daily Usage (CSV)</button>
-              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('daily', 'json')}>Daily Usage (JSON)</button>
-              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('sessions', 'csv')}>Sessions (CSV)</button>
-              <button style={styles.exportMenuItem} onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')} onClick={() => handleExport('sessions', 'json')}>Sessions (JSON)</button>
+              <button
+                style={styles.exportMenuItem}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                onClick={() => handleExport('daily', 'csv')}
+              >
+                Daily Usage (CSV)
+              </button>
+              <button
+                style={styles.exportMenuItem}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                onClick={() => handleExport('daily', 'json')}
+              >
+                Daily Usage (JSON)
+              </button>
+              <button
+                style={styles.exportMenuItem}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                onClick={() => handleExport('sessions', 'csv')}
+              >
+                Sessions (CSV)
+              </button>
+              <button
+                style={styles.exportMenuItem}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                onClick={() => handleExport('sessions', 'json')}
+              >
+                Sessions (JSON)
+              </button>
             </div>
           )}
         </div>
@@ -303,7 +330,14 @@ export default function Dashboard() {
 
       <div style={styles.section}>
         <div style={styles.accordionHeader} onClick={() => setStatsOpen(!statsOpen)}>
-          <span style={{ ...styles.accordionArrow, transform: statsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          <span
+            style={{
+              ...styles.accordionArrow,
+              transform: statsOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            &#9654;
+          </span>
           Aggregated Stats
         </div>
         {statsOpen && <AggregatedStatsCard summary={summary} />}
@@ -311,21 +345,50 @@ export default function Dashboard() {
 
       <div style={styles.section}>
         <div style={styles.accordionHeader} onClick={() => setSubscriptionOpen(!subscriptionOpen)}>
-          <span style={{ ...styles.accordionArrow, transform: subscriptionOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          <span
+            style={{
+              ...styles.accordionArrow,
+              transform: subscriptionOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            &#9654;
+          </span>
           Subscription vs API Cost
         </div>
-        {subscriptionOpen && <SubscriptionComparison dateRange={dateRange} project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
+        {subscriptionOpen && (
+          <SubscriptionComparison
+            dateRange={dateRange}
+            project={projectFilter}
+            customTitle={customTitleFilter}
+            refreshKey={refreshKey}
+          />
+        )}
       </div>
 
       <div style={styles.section}>
         <div style={styles.accordionHeader} onClick={() => setFiltersOpen(!filtersOpen)}>
-          <span style={{ ...styles.accordionArrow, transform: filtersOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          <span
+            style={{
+              ...styles.accordionArrow,
+              transform: filtersOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            &#9654;
+          </span>
           Filters
         </div>
         {filtersOpen && (
           <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-            <ProjectFilter onChange={setProjectFilter} refreshKey={refreshKey} clearKey={clearKey} />
-            <CustomTitleFilter onChange={setCustomTitleFilter} refreshKey={refreshKey} clearKey={clearKey} />
+            <ProjectFilter
+              onChange={setProjectFilter}
+              refreshKey={refreshKey}
+              clearKey={clearKey}
+            />
+            <CustomTitleFilter
+              onChange={setCustomTitleFilter}
+              refreshKey={refreshKey}
+              clearKey={clearKey}
+            />
             <DateRangePicker onChange={setDateRange} clearKey={clearKey} />
             {(projectFilter || customTitleFilter || dateRange) && (
               <button
@@ -355,18 +418,46 @@ export default function Dashboard() {
 
       <div style={styles.section}>
         <div style={styles.accordionHeader} onClick={() => setDailyOpen(!dailyOpen)}>
-          <span style={{ ...styles.accordionArrow, transform: dailyOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          <span
+            style={{
+              ...styles.accordionArrow,
+              transform: dailyOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            &#9654;
+          </span>
           Daily Usage
         </div>
-        {dailyOpen && <DailyStatsTable dateRange={dateRange} project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
+        {dailyOpen && (
+          <DailyStatsTable
+            dateRange={dateRange}
+            project={projectFilter}
+            customTitle={customTitleFilter}
+            refreshKey={refreshKey}
+          />
+        )}
       </div>
 
       <div style={styles.section}>
         <div style={styles.accordionHeader} onClick={() => setSessionsOpen(!sessionsOpen)}>
-          <span style={{ ...styles.accordionArrow, transform: sessionsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#9654;</span>
+          <span
+            style={{
+              ...styles.accordionArrow,
+              transform: sessionsOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            &#9654;
+          </span>
           Sessions
         </div>
-        {sessionsOpen && <SessionList dateRange={dateRange} project={projectFilter} customTitle={customTitleFilter} refreshKey={refreshKey} />}
+        {sessionsOpen && (
+          <SessionList
+            dateRange={dateRange}
+            project={projectFilter}
+            customTitle={customTitleFilter}
+            refreshKey={refreshKey}
+          />
+        )}
       </div>
     </div>
   )

@@ -5,7 +5,10 @@ interface BillingCycleDropdownProps {
   onClear: () => void
 }
 
-function getBillingCycle(startDate: string): { periodStart: string; periodEnd: string; nextPayment: string } {
+function getBillingCycleForOffset(
+  startDate: string,
+  offset: number
+): { periodStart: string; periodEnd: string; nextPayment: string } {
   const start = new Date(startDate + 'T00:00:00')
   const billingDay = start.getUTCDate()
   const today = new Date()
@@ -23,8 +26,19 @@ function getBillingCycle(startDate: string): { periodStart: string; periodEnd: s
     periodStart = new Date(year, month - 1, billingDay)
   }
 
+  // Apply offset (negative = past cycles)
+  periodStart = new Date(
+    periodStart.getFullYear(),
+    periodStart.getMonth() + offset,
+    billingDay
+  )
+
   // Next payment: one month after period start
-  const nextPayment = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, billingDay)
+  const nextPayment = new Date(
+    periodStart.getFullYear(),
+    periodStart.getMonth() + 1,
+    billingDay
+  )
   // Period end: day before next payment
   const periodEnd = new Date(nextPayment)
   periodEnd.setDate(periodEnd.getDate() - 1)
@@ -144,6 +158,59 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#dc2626',
     borderRadius: '4px',
   },
+  navRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '4px',
+  },
+  navButton: {
+    padding: '4px 8px',
+    background: '#f3f4f6',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    color: '#374151',
+    lineHeight: 1,
+  },
+  navButtonDisabled: {
+    padding: '4px 8px',
+    background: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: '4px',
+    cursor: 'default',
+    fontSize: '13px',
+    color: '#d1d5db',
+    lineHeight: 1,
+  },
+  cycleCountRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    marginTop: '4px',
+  },
+  cycleCountButton: {
+    padding: '4px 10px',
+    background: '#f3f4f6',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    color: '#374151',
+    lineHeight: 1,
+  },
+  cycleCountButtonActive: {
+    padding: '4px 10px',
+    background: '#2563eb',
+    border: '1px solid #2563eb',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    color: 'white',
+    fontWeight: 600,
+    lineHeight: 1,
+  },
 }
 
 export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleDropdownProps) {
@@ -151,6 +218,8 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
   const [subscriptionDate, setSubscriptionDate] = useState<string | null>(null)
   const [inputDate, setInputDate] = useState('')
   const [loading, setLoading] = useState(true)
+  const [cycleOffset, setCycleOffset] = useState(0)
+  const [cycleCount, setCycleCount] = useState(1)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -185,6 +254,8 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
       })
       if (res.ok) {
         setSubscriptionDate(date)
+        setCycleOffset(0)
+        setCycleCount(1)
       }
     } catch (err) {
       console.error('Failed to save subscription date:', err)
@@ -201,6 +272,8 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
       if (res.ok) {
         setSubscriptionDate(null)
         setInputDate('')
+        setCycleOffset(0)
+        setCycleCount(1)
       }
     } catch (err) {
       console.error('Failed to clear subscription date:', err)
@@ -213,10 +286,50 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
     }
   }
 
+  // Check if a given offset would produce a range starting before the subscription date
+  const wouldExceedSubscriptionStart = (offset: number, count: number): boolean => {
+    if (!subscriptionDate) return false
+    const earliest = getBillingCycleForOffset(subscriptionDate, offset - count + 1)
+    return earliest.periodStart < subscriptionDate
+  }
+
+  const canGoPrev = subscriptionDate
+    ? !wouldExceedSubscriptionStart(cycleOffset - 1, cycleCount)
+    : false
+
+  const canGoNext = cycleOffset < 0
+
+  const handlePrev = () => {
+    if (canGoPrev) setCycleOffset(cycleOffset - 1)
+  }
+
+  const handleNext = () => {
+    if (canGoNext) setCycleOffset(cycleOffset + 1)
+  }
+
+  const handleNow = () => {
+    setCycleOffset(0)
+  }
+
+  const handleCycleCountChange = (newCount: number) => {
+    // Clamp offset forward if the expanded range would extend before subscription start
+    let newOffset = cycleOffset
+    if (subscriptionDate) {
+      while (newOffset < 0 && wouldExceedSubscriptionStart(newOffset, newCount)) {
+        newOffset++
+      }
+    }
+    setCycleCount(newCount)
+    setCycleOffset(newOffset)
+  }
+
   const handleReset = () => {
     if (!subscriptionDate) return
-    const { periodStart, periodEnd } = getBillingCycle(subscriptionDate)
-    onReset(periodStart, periodEnd)
+    // The focused cycle is at cycleOffset; with cycleCount, the range spans
+    // from (cycleOffset - cycleCount + 1) to cycleOffset
+    const startCycle = getBillingCycleForOffset(subscriptionDate, cycleOffset - cycleCount + 1)
+    const endCycle = getBillingCycleForOffset(subscriptionDate, cycleOffset)
+    onReset(startCycle.periodStart, endCycle.periodEnd)
     setOpen(false)
   }
 
@@ -227,7 +340,21 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
 
   if (loading) return null
 
-  const cycle = subscriptionDate ? getBillingCycle(subscriptionDate) : null
+  const focusedCycle = subscriptionDate
+    ? getBillingCycleForOffset(subscriptionDate, cycleOffset)
+    : null
+
+  // Compute the full range when cycleCount > 1
+  const rangeStartCycle = subscriptionDate && cycleCount > 1
+    ? getBillingCycleForOffset(subscriptionDate, cycleOffset - cycleCount + 1)
+    : null
+
+  // Dynamic button text
+  const getActionButtonText = (): string => {
+    if (cycleCount > 1) return `View ${cycleCount} Cycles`
+    if (cycleOffset === 0) return 'View Current Period'
+    return 'View This Period'
+  }
 
   return (
     <div style={styles.wrapper} ref={ref}>
@@ -261,15 +388,82 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
             </button>
           </div>
 
-          {cycle && subscriptionDate && (
+          {focusedCycle && subscriptionDate && (
             <>
               <div style={styles.divider} />
-              <div style={styles.cycleLabel}>Current Billing Period</div>
-              <div style={styles.cycleInfo}>
-                {formatDisplay(cycle.periodStart)} &ndash; {formatDisplay(cycle.periodEnd)}
+
+              {/* Billing period header with nav arrows */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <div style={styles.label}>Billing Period</div>
+                <div style={styles.navRow}>
+                  <button
+                    style={canGoPrev ? styles.navButton : styles.navButtonDisabled}
+                    onClick={handlePrev}
+                    disabled={!canGoPrev}
+                    title="Previous cycle"
+                  >
+                    &#9664;
+                  </button>
+                  <button
+                    style={canGoNext ? styles.navButton : styles.navButtonDisabled}
+                    onClick={handleNext}
+                    disabled={!canGoNext}
+                    title="Next cycle"
+                  >
+                    &#9654;
+                  </button>
+                  <button
+                    style={cycleOffset !== 0 ? styles.navButton : styles.navButtonDisabled}
+                    onClick={handleNow}
+                    disabled={cycleOffset === 0}
+                    title="Jump to current cycle"
+                  >
+                    Now
+                  </button>
+                </div>
               </div>
-              <div style={{ ...styles.cycleLabel, marginTop: '8px' }}>Next Payment</div>
-              <div style={styles.cycleInfo}>{formatDisplay(cycle.nextPayment)}</div>
+
+              {/* Focused cycle range */}
+              <div style={styles.cycleInfo}>
+                {formatDisplay(focusedCycle.periodStart)} &ndash; {formatDisplay(focusedCycle.periodEnd)}
+                {cycleOffset === 0 && (
+                  <span style={{ color: '#6b7280', fontSize: '13px' }}> (current)</span>
+                )}
+              </div>
+
+              {/* Cycle range selector */}
+              <div style={styles.divider} />
+              <div style={styles.label}>Cycle Range</div>
+              <div style={styles.cycleCountRow}>
+                {[1, 2, 3, 6, 12].map((n) => (
+                  <button
+                    key={n}
+                    style={cycleCount === n ? styles.cycleCountButtonActive : styles.cycleCountButton}
+                    onClick={() => handleCycleCountChange(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: '2px' }}>
+                  {cycleCount === 1 ? 'cycle' : 'cycles'}
+                </span>
+              </div>
+
+              {/* Full range display when count > 1 */}
+              {rangeStartCycle && (
+                <div style={{ ...styles.cycleInfo, marginTop: '8px' }}>
+                  <span style={{ ...styles.cycleLabel, marginRight: '4px' }}>Full range:</span>
+                  {formatDisplay(rangeStartCycle.periodStart)} &ndash; {formatDisplay(focusedCycle.periodEnd)}
+                </div>
+              )}
+
+              {/* Next payment - only when viewing current cycle */}
+              {cycleOffset === 0 && (
+                <>
+                  <div style={{ ...styles.cycleLabel, marginTop: '8px' }}>Next Payment</div>
+                  <div style={styles.cycleInfo}>{formatDisplay(focusedCycle.nextPayment)}</div>
+                </>
+              )}
 
               <div style={styles.divider} />
               <button
@@ -278,7 +472,7 @@ export default function BillingCycleDropdown({ onReset, onClear }: BillingCycleD
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#1d4ed8')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '#2563eb')}
               >
-                Reset to Current Period
+                {getActionButtonText()}
               </button>
               <button
                 style={{ ...styles.actionButton, marginTop: '4px' }}
