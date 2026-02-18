@@ -64,3 +64,29 @@ export const SUBAGENT_JSONL = [
   '{"type":"user","sessionId":"agent-sub-001","timestamp":"2026-01-15T10:01:00.000Z","isSidechain":true,"agentId":"sub-001","message":{"role":"user","content":"subagent task"}}',
   '{"type":"assistant","sessionId":"agent-sub-001","timestamp":"2026-01-15T10:01:01.000Z","isSidechain":true,"agentId":"sub-001","message":{"id":"msg-sa1","role":"assistant","model":"claude-haiku-4-5-20250514","usage":{"input_tokens":600,"output_tokens":250,"cache_creation_input_tokens":0,"cache_read_input_tokens":50}}}',
 ].join('\n');
+
+/**
+ * Multi-turn JSONL with 3 full user→assistant exchanges (including streaming chunks).
+ * Used as a format regression test: verifies turn detection, duration calculation,
+ * streaming dedup, and exchange creation.
+ *
+ * Turn 1: user at T+0s, assistant streaming at T+10s and T+12s (last wins) → duration = 12s
+ * Turn 2: user at T+30s, assistant at T+45s → duration = 15s
+ * Turn 3: user at T+60s, assistant at T+90s → duration = 30s
+ */
+export const MULTI_TURN_JSONL = [
+  // Turn 1: user sends message
+  '{"type":"user","sessionId":"multi-001","timestamp":"2026-01-20T10:00:00.000Z","uuid":"uuid-u1","message":{"role":"user","content":"What is 2+2?"}}',
+  // Turn 1: assistant streaming chunk 1 (partial)
+  '{"type":"assistant","sessionId":"multi-001","timestamp":"2026-01-20T10:00:10.000Z","message":{"id":"msg-m1","role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":500,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}',
+  // Turn 1: assistant streaming chunk 2 (final — last wins)
+  '{"type":"assistant","sessionId":"multi-001","timestamp":"2026-01-20T10:00:12.000Z","message":{"id":"msg-m1","role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":500,"output_tokens":50,"cache_creation_input_tokens":100,"cache_read_input_tokens":200}}}',
+  // Turn 2: user sends next message
+  '{"type":"user","sessionId":"multi-001","timestamp":"2026-01-20T10:00:30.000Z","uuid":"uuid-u2","message":{"role":"user","content":"What is the capital of France?"}}',
+  // Turn 2: assistant response
+  '{"type":"assistant","sessionId":"multi-001","timestamp":"2026-01-20T10:00:45.000Z","message":{"id":"msg-m2","role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":800,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":300}}}',
+  // Turn 3: user sends next message
+  '{"type":"user","sessionId":"multi-001","timestamp":"2026-01-20T10:01:00.000Z","uuid":"uuid-u3","message":{"role":"user","content":"Tell me a joke."}}',
+  // Turn 3: assistant response
+  '{"type":"assistant","sessionId":"multi-001","timestamp":"2026-01-20T10:01:30.000Z","message":{"id":"msg-m3","role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":600,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}',
+].join('\n');

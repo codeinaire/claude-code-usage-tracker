@@ -54,7 +54,7 @@ export interface Session {
   customTitle: string | null;
 }
 
-export interface Message {
+export interface UsageRecord {
   externalId: string;
   sessionId: number;
   subagentId: number | null;
@@ -64,6 +64,16 @@ export interface Message {
   outputTokens: number;
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
+}
+
+export interface Exchange {
+  sessionId: number;
+  userMessageUuid: string | null;
+  userTimestamp: string;
+  assistantMessageId: string | null;
+  assistantLastTimestamp: string | null;
+  durationSeconds: number | null;
+  userContent: string | null;
 }
 
 export function upsertSession(session: Session): number {
@@ -144,10 +154,10 @@ export function getSubagentIdByExternalId(externalId: string): number | null {
   return row ? row.id : null;
 }
 
-export function insertMessages(messages: Message[]): number {
+export function insertUsageRecords(records: UsageRecord[]): number {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO messages (
+    INSERT INTO usage_records (
       external_id, session_id, subagent_id, timestamp, model,
       input_tokens, output_tokens,
       cache_creation_input_tokens, cache_read_input_tokens
@@ -159,24 +169,58 @@ export function insertMessages(messages: Message[]): number {
       cache_read_input_tokens = excluded.cache_read_input_tokens
   `);
 
-  const insertMany = db.transaction((msgs: Message[]) => {
-    for (const msg of msgs) {
+  const insertMany = db.transaction((items: UsageRecord[]) => {
+    for (const rec of items) {
       stmt.run(
-        msg.externalId,
-        msg.sessionId,
-        msg.subagentId,
-        msg.timestamp,
-        msg.model,
-        msg.inputTokens,
-        msg.outputTokens,
-        msg.cacheCreationInputTokens,
-        msg.cacheReadInputTokens
+        rec.externalId,
+        rec.sessionId,
+        rec.subagentId,
+        rec.timestamp,
+        rec.model,
+        rec.inputTokens,
+        rec.outputTokens,
+        rec.cacheCreationInputTokens,
+        rec.cacheReadInputTokens
       );
     }
-    return msgs.length;
+    return items.length;
   });
 
-  return insertMany(messages);
+  return insertMany(records);
+}
+
+export function insertExchanges(exchanges: Exchange[]): number {
+  if (exchanges.length === 0) return 0;
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO exchanges (
+      session_id, user_message_uuid, user_timestamp,
+      assistant_message_id, assistant_last_timestamp,
+      duration_seconds, user_content
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, user_timestamp) DO UPDATE SET
+      assistant_message_id = excluded.assistant_message_id,
+      assistant_last_timestamp = excluded.assistant_last_timestamp,
+      duration_seconds = excluded.duration_seconds,
+      user_content = excluded.user_content
+  `);
+
+  const insertMany = db.transaction((items: Exchange[]) => {
+    for (const ex of items) {
+      stmt.run(
+        ex.sessionId,
+        ex.userMessageUuid,
+        ex.userTimestamp,
+        ex.assistantMessageId,
+        ex.assistantLastTimestamp,
+        ex.durationSeconds,
+        ex.userContent
+      );
+    }
+    return items.length;
+  });
+
+  return insertMany(exchanges);
 }
 
 export function getSyncState(filePath: string): { lastOffset: number } | null {
@@ -212,6 +256,7 @@ export interface SessionStats {
   estimatedCostUsd: number;
   messageCount: number;
   subagentCount: number;
+  durationSeconds: number;
 }
 
 export function getSessionStats(from?: string, to?: string, project?: string, customTitle?: string): SessionStats[] {
@@ -230,9 +275,10 @@ export function getSessionStats(from?: string, to?: string, project?: string, cu
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
       COUNT(m.id) as messageCount,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as estimatedCostUsd,
-      (SELECT COUNT(*) FROM subagents sa WHERE sa.session_id = s.id) as subagentCount
+      (SELECT COUNT(*) FROM subagents sa WHERE sa.session_id = s.id) as subagentCount,
+      (SELECT COALESCE(SUM(duration_seconds), 0) FROM exchanges WHERE session_id = s.id) as durationSeconds
     FROM sessions s
-    LEFT JOIN messages m ON s.id = m.session_id
+    LEFT JOIN usage_records m ON s.id = m.session_id
   `;
 
   const params: string[] = [];
@@ -285,7 +331,7 @@ export function getDailyStats(from?: string, to?: string, project?: string, cust
       COUNT(DISTINCT m.session_id) as sessionCount,
       COUNT(m.id) as messageCount,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as costUsd
-    FROM messages m
+    FROM usage_records m
   `;
 
   const params: string[] = [];
@@ -329,6 +375,8 @@ export interface Summary {
   totalCostUsd: number;
   costWithoutCacheUsd: number;
   sessionCount: number;
+  messageCount: number;
+  totalHours: number;
   firstSession: string | null;
   lastSession: string | null;
 }
@@ -367,8 +415,9 @@ export function getSummary(from?: string, to?: string, project?: string, customT
       COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
       COALESCE(SUM(m.output_tokens), 0) as outputTokens,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as totalCostUsd,
-      COALESCE(SUM(${MESSAGE_COST_NO_CACHE_SQL}), 0) as costWithoutCacheUsd
-    FROM messages m${sessionJoin}${statsWhere}
+      COALESCE(SUM(${MESSAGE_COST_NO_CACHE_SQL}), 0) as costWithoutCacheUsd,
+      COUNT(m.id) as messageCount
+    FROM usage_records m${sessionJoin}${statsWhere}
   `
     )
     .get(...statsParams) as {
@@ -378,24 +427,26 @@ export function getSummary(from?: string, to?: string, project?: string, customT
     outputTokens: number;
     totalCostUsd: number;
     costWithoutCacheUsd: number;
+    messageCount: number;
   };
 
-  const sessionConditions = ["external_id NOT LIKE 'agent-%'"];
+  // Session count + date range query
+  const sessionConditions = ["s.external_id NOT LIKE 'agent-%'"];
   const sessionParams: string[] = [];
   if (project) {
-    sessionConditions.push('project = ?');
+    sessionConditions.push('s.project = ?');
     sessionParams.push(project);
   }
   if (customTitle) {
-    sessionConditions.push('custom_title = ?');
+    sessionConditions.push('s.custom_title = ?');
     sessionParams.push(customTitle);
   }
   if (from) {
-    sessionConditions.push('start_time >= ?');
+    sessionConditions.push('s.start_time >= ?');
     sessionParams.push(from);
   }
   if (to) {
-    sessionConditions.push('start_time <= ?');
+    sessionConditions.push('s.start_time <= ?');
     sessionParams.push(to);
   }
 
@@ -404,9 +455,9 @@ export function getSummary(from?: string, to?: string, project?: string, customT
       `
     SELECT
       COUNT(*) as sessionCount,
-      MIN(start_time) as firstSession,
-      MAX(start_time) as lastSession
-    FROM sessions
+      MIN(s.start_time) as firstSession,
+      MAX(s.start_time) as lastSession
+    FROM sessions s
     WHERE ${sessionConditions.join(' AND ')}
   `
     )
@@ -416,9 +467,22 @@ export function getSummary(from?: string, to?: string, project?: string, customT
     lastSession: string | null;
   };
 
+  // Total hours from exchanges (accurate active time, not wall-clock duration)
+  const hoursResult = db
+    .prepare(
+      `
+    SELECT COALESCE(SUM(e.duration_seconds), 0) / 3600.0 as totalHours
+    FROM exchanges e
+    JOIN sessions s ON s.id = e.session_id
+    WHERE ${sessionConditions.join(' AND ')}
+  `
+    )
+    .get(...sessionParams) as { totalHours: number };
+
   return {
     ...stats,
     sessionCount: sessionStats.sessionCount,
+    totalHours: hoursResult.totalHours,
     firstSession: sessionStats.firstSession
       ? sessionStats.firstSession.split('T')[0]
       : null,
@@ -478,7 +542,7 @@ export function getSubagentsBySessionId(sessionId: number): SubagentStats[] {
       COUNT(m.id) as messageCount,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as estimatedCostUsd
     FROM subagents sa
-    LEFT JOIN messages m ON sa.id = m.subagent_id
+    LEFT JOIN usage_records m ON sa.id = m.subagent_id
     WHERE sa.session_id = ?
     GROUP BY sa.id
     ORDER BY sa.start_time ASC
@@ -509,7 +573,7 @@ export function getMonthlyCosts(from?: string, to?: string, project?: string, cu
       COALESCE(SUM(m.cache_read_input_tokens), 0) as cacheReadTokens,
       COUNT(DISTINCT m.session_id) as sessionCount,
       COUNT(m.id) as messageCount
-    FROM messages m
+    FROM usage_records m
   `;
 
   const params: string[] = [];
@@ -577,10 +641,10 @@ export function getAllSettings(): Record<string, string> {
 
 export function cleanupOrphanedSubagentSessions(): void {
   const db = getDb();
-  // Delete messages for sessions whose external_id looks like a subagent
+  // Delete usage_records for sessions whose external_id looks like a subagent
   // (these were incorrectly parsed as sessions before subagent routing)
   db.prepare(`
-    DELETE FROM messages WHERE session_id IN (
+    DELETE FROM usage_records WHERE session_id IN (
       SELECT id FROM sessions WHERE external_id LIKE 'agent-%'
     )
   `).run();
@@ -596,22 +660,36 @@ export function updateSessionCustomTitle(sessionId: number, customTitle: string 
 export function deleteSession(sessionId: number): void {
   const db = getDb();
   const del = db.transaction(() => {
-    db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM usage_records WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM exchanges WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM subagents WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
   });
   del();
 }
 
-export function clearSessionMessages(sessionId: number): void {
+export function clearSessionUsageRecords(sessionId: number): void {
   const db = getDb();
-  db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM usage_records WHERE session_id = ?').run(sessionId);
 }
 
-export function clearSessionMessagesByExternalId(externalId: string): void {
+export function clearSessionUsageRecordsByExternalId(externalId: string): void {
   const db = getDb();
   const sessionId = getSessionIdByExternalId(externalId);
   if (sessionId !== null) {
-    clearSessionMessages(sessionId);
+    clearSessionUsageRecords(sessionId);
+  }
+}
+
+export function clearSessionExchanges(sessionId: number): void {
+  const db = getDb();
+  db.prepare('DELETE FROM exchanges WHERE session_id = ?').run(sessionId);
+}
+
+export function clearSessionExchangesByExternalId(externalId: string): void {
+  const db = getDb();
+  const sessionId = getSessionIdByExternalId(externalId);
+  if (sessionId !== null) {
+    clearSessionExchanges(sessionId);
   }
 }

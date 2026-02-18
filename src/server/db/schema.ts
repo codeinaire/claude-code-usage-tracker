@@ -54,8 +54,8 @@ function initializeSchema(db: Database.Database): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     );
 
-    -- Messages table: individual API calls with token usage
-    CREATE TABLE IF NOT EXISTS messages (
+    -- usage_records table: individual API calls with token usage (previously named "messages")
+    CREATE TABLE IF NOT EXISTS usage_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       external_id TEXT UNIQUE NOT NULL,
       session_id INTEGER NOT NULL,
@@ -68,6 +68,19 @@ function initializeSchema(db: Database.Database): void {
       cache_read_input_tokens INTEGER DEFAULT 0,
       FOREIGN KEY (session_id) REFERENCES sessions(id),
       FOREIGN KEY (subagent_id) REFERENCES subagents(id)
+    );
+
+    -- exchanges table: one row per conversation turn (user message → Claude response)
+    CREATE TABLE IF NOT EXISTS exchanges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      user_message_uuid TEXT,
+      user_timestamp TEXT NOT NULL,
+      assistant_message_id TEXT,
+      assistant_last_timestamp TEXT,
+      duration_seconds REAL,
+      user_content TEXT,
+      UNIQUE(session_id, user_timestamp)
     );
 
     -- Daily stats table: pre-aggregated daily statistics
@@ -90,14 +103,16 @@ function initializeSchema(db: Database.Database): void {
     );
 
     -- Indexes for common queries
-    CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_usage_records_session ON usage_records(session_id);
+    CREATE INDEX IF NOT EXISTS idx_usage_records_timestamp ON usage_records(timestamp);
     CREATE INDEX IF NOT EXISTS idx_sessions_external_id ON sessions(external_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
     CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON sessions(start_time);
     CREATE INDEX IF NOT EXISTS idx_subagents_session ON subagents(session_id);
     CREATE INDEX IF NOT EXISTS idx_subagents_external_id ON subagents(external_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id);
+    CREATE INDEX IF NOT EXISTS idx_usage_records_external_id ON usage_records(external_id);
+    CREATE INDEX IF NOT EXISTS idx_exchanges_session ON exchanges(session_id);
+    CREATE INDEX IF NOT EXISTS idx_exchanges_user_timestamp ON exchanges(user_timestamp);
 
     -- App settings (key/value store)
     CREATE TABLE IF NOT EXISTS settings (
@@ -111,5 +126,12 @@ function initializeSchema(db: Database.Database): void {
     db.exec(`ALTER TABLE sessions ADD COLUMN custom_title TEXT`);
   } catch {
     // Column already exists
+  }
+
+  // Migration: drop old messages table (renamed to usage_records)
+  try {
+    db.exec(`DROP TABLE IF EXISTS messages`);
+  } catch {
+    // Already dropped or never existed
   }
 }

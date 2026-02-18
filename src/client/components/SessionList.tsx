@@ -14,6 +14,7 @@ interface Session {
   estimatedCostUsd: number;
   messageCount: number;
   subagentCount: number;
+  durationSeconds: number;
 }
 
 interface Subagent {
@@ -132,6 +133,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
+    cursor: 'pointer',
   },
   project: {
     fontSize: '13px',
@@ -278,6 +280,16 @@ function formatDuration(startTime: string | null, endTime: string | null): strin
   }
 }
 
+function formatDurationSeconds(seconds: number): string {
+  if (seconds <= 0) return '-';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
 function getProjectName(project: string | null): string {
   if (!project) return '-';
   // Remove trailing slash and get the last segment (project name)
@@ -296,6 +308,15 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
   const [loadingSubagents, setLoadingSubagents] = useState<Set<number>>(new Set());
   const [editingTitleId, setEditingTitleId] = useState<number | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyId = (externalId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(externalId).then(() => {
+      setCopiedId(externalId);
+      setTimeout(() => setCopiedId(null), 1500);
+    });
+  };
 
   const saveTitle = async (sessionId: number) => {
     const trimmed = editingTitleValue.trim();
@@ -447,7 +468,13 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                       {expandedSessions.has(session.id) ? '\u25BC' : '\u25B6'}
                     </button>
                   )}
-                  <span style={styles.sessionId} title={session.externalId}>{session.externalId.slice(0, 8)}...</span>
+                  <span
+                    style={styles.sessionId}
+                    title={copiedId === session.externalId ? 'Copied!' : session.externalId}
+                    onClick={(e) => handleCopyId(session.externalId, e)}
+                  >
+                    {copiedId === session.externalId ? 'Copied!' : `${session.externalId.slice(0, 8)}...`}
+                  </span>
                   {session.subagentCount > 0 && (
                     <span style={styles.badge}>{session.subagentCount} sub</span>
                   )}
@@ -485,7 +512,7 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                 </td>
                 <td style={styles.td} title={formatFullDateTime(session.startTime)}>{formatDateTime(session.startTime)}</td>
                 <td style={styles.td} title={formatFullDateTime(session.endTime)}>{formatDateTime(session.endTime)}</td>
-                <td style={styles.tdRight}>{formatDuration(session.startTime, session.endTime)}</td>
+                <td style={styles.tdRight}>{formatDurationSeconds(session.durationSeconds)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.inputTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheCreationTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheReadTokens)}</td>
@@ -513,7 +540,13 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                   (subagentData[session.id] || []).map((sub) => (
                     <tr key={sub.id} style={styles.subagentRow}>
                       <td style={styles.subagentTd}>
-                        <span style={styles.sessionId}>{sub.externalId.slice(0, 12)}...</span>
+                        <span
+                          style={styles.sessionId}
+                          title={copiedId === sub.externalId ? 'Copied!' : sub.externalId}
+                          onClick={(e) => handleCopyId(sub.externalId, e)}
+                        >
+                          {copiedId === sub.externalId ? 'Copied!' : `${sub.externalId.slice(0, 12)}...`}
+                        </span>
                       </td>
                       <td style={styles.subagentTd}>
                         <span style={{ fontSize: '12px', color: '#6b7280' }}>{sub.type || '-'}</span>

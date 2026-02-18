@@ -21,7 +21,7 @@ router.post('/', (req: Request, res: Response) => {
     res.json({
       success: true,
       sessionExternalId: result.sessionExternalId,
-      messagesImported: result.messagesImported,
+      usageRecordsImported: result.usageRecordsImported,
       project: result.project,
     });
   } catch (error) {
@@ -40,7 +40,7 @@ router.post('/all', (_req: Request, res: Response) => {
     res.json({
       success: true,
       sessionsImported: result.sessionsImported,
-      messagesImported: result.messagesImported,
+      usageRecordsImported: result.usageRecordsImported,
     });
   } catch (error) {
     console.error('Sync all error:', error);
