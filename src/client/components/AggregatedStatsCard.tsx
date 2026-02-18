@@ -12,6 +12,7 @@ interface Summary {
   sessionCount: number
   messageCount: number
   totalHours: number
+  claudeActiveHours: number
   firstSession: string | null
   lastSession: string | null
 }
@@ -204,6 +205,11 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
       <div style={styles.card}>
         <div style={styles.cardLabel}>Total Hours</div>
         <div style={styles.cardValue}>{summary ? formatHours(summary.totalHours) : '-'}</div>
+        {summary && summary.claudeActiveHours > 0 && (
+          <div style={styles.cardSubvalue}>
+            Claude: {formatHours(summary.claudeActiveHours)} · You: {formatHours(summary.totalHours - summary.claudeActiveHours)}
+          </div>
+        )}
       </div>
       <div />
       <div style={styles.card}>
