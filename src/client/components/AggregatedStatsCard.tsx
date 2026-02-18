@@ -10,6 +10,8 @@ interface Summary {
   totalCostUsd: number
   costWithoutCacheUsd: number
   sessionCount: number
+  messageCount: number
+  totalHours: number
   firstSession: string | null
   lastSession: string | null
 }
@@ -68,6 +70,14 @@ function formatNumber(n: number): string {
 
 function formatCurrency(n: number): string {
   return '$' + n.toFixed(2)
+}
+
+function formatHours(hours: number): string {
+  const h = Math.floor(hours)
+  const m = Math.round((hours - h) * 60)
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
 }
 
 export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProps) {
@@ -180,10 +190,20 @@ export default function AggregatedStatsCard({ summary }: AggregatedStatsCardProp
         <div style={styles.sectionHeader}>Misc</div>
       </div>
 
-      {/* Row 6: Output tokens & Sessions */}
+      {/* Row 6: Output tokens, Total Messages, Total Hours & Sessions */}
       <div style={styles.card}>
         <div style={styles.cardLabel}>Output Tokens</div>
         <div style={styles.cardValue}>{summary ? formatNumber(summary.outputTokens) : '-'}</div>
+      </div>
+      <div />
+      <div style={styles.card}>
+        <div style={styles.cardLabel}>Total Messages</div>
+        <div style={styles.cardValue}>{summary ? formatNumber(summary.messageCount) : '-'}</div>
+      </div>
+      <div />
+      <div style={styles.card}>
+        <div style={styles.cardLabel}>Total Hours</div>
+        <div style={styles.cardValue}>{summary ? formatHours(summary.totalHours) : '-'}</div>
       </div>
       <div />
       <div style={styles.card}>

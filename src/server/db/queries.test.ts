@@ -3,7 +3,8 @@ import { setupTestDb, teardownTestDb } from '../test/setup.js';
 import { getDb } from './schema.js';
 import {
   upsertSession,
-  insertMessages,
+  insertUsageRecords,
+  insertExchanges,
   upsertSubagent,
   getSessionStats,
   getDailyStats,
@@ -79,36 +80,102 @@ describe('upsertSession', () => {
   });
 });
 
-describe('insertMessages', () => {
+describe('insertUsageRecords', () => {
   beforeEach(() => setupTestDb());
   afterEach(() => teardownTestDb());
 
-  test('inserts multiple messages in a transaction', () => {
+  test('inserts multiple usage records in a transaction', () => {
     const sessionId = upsertSession({ externalId: 'sess-1', project: null, startTime: null, endTime: null, model: null, version: null, customTitle: null });
-    const count = insertMessages([
+    const count = insertUsageRecords([
       { externalId: 'msg-1', sessionId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
       { externalId: 'msg-2', sessionId, subagentId: null, timestamp: '2026-01-15T10:01:00Z', model: 'claude-sonnet-4', inputTokens: 2000, outputTokens: 800, cacheCreationInputTokens: 100, cacheReadInputTokens: 200 },
     ]);
     expect(count).toBe(2);
 
     const db = getDb();
-    const msgs = db.prepare('SELECT * FROM messages WHERE session_id = ?').all(sessionId);
-    expect(msgs).toHaveLength(2);
+    const records = db.prepare('SELECT * FROM usage_records WHERE session_id = ?').all(sessionId);
+    expect(records).toHaveLength(2);
   });
 
-  test('upserts messages on conflict (updates token counts)', () => {
+  test('upserts usage records on conflict (updates token counts)', () => {
     const sessionId = upsertSession({ externalId: 'sess-1', project: null, startTime: null, endTime: null, model: null, version: null, customTitle: null });
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-1', sessionId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 100, outputTokens: 50, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-1', sessionId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
 
     const db = getDb();
-    const msg = db.prepare("SELECT * FROM messages WHERE external_id = 'msg-1'").get() as Record<string, unknown>;
-    expect(msg.input_tokens).toBe(1000);
-    expect(msg.output_tokens).toBe(500);
+    const rec = db.prepare("SELECT * FROM usage_records WHERE external_id = 'msg-1'").get() as Record<string, unknown>;
+    expect(rec.input_tokens).toBe(1000);
+    expect(rec.output_tokens).toBe(500);
+  });
+});
+
+describe('insertExchanges', () => {
+  beforeEach(() => setupTestDb());
+  afterEach(() => teardownTestDb());
+
+  test('inserts exchanges and returns count', () => {
+    const sessionId = upsertSession({ externalId: 'ex-sess-1', project: null, startTime: null, endTime: null, model: null, version: null, customTitle: null });
+    const count = insertExchanges([
+      {
+        sessionId,
+        userMessageUuid: 'uuid-1',
+        userTimestamp: '2026-01-15T10:00:00Z',
+        assistantMessageId: 'msg-a1',
+        assistantLastTimestamp: '2026-01-15T10:00:30Z',
+        durationSeconds: 30,
+        userContent: 'Hello',
+      },
+      {
+        sessionId,
+        userMessageUuid: 'uuid-2',
+        userTimestamp: '2026-01-15T10:01:00Z',
+        assistantMessageId: 'msg-a2',
+        assistantLastTimestamp: '2026-01-15T10:01:20Z',
+        durationSeconds: 20,
+        userContent: 'Follow up',
+      },
+    ]);
+    expect(count).toBe(2);
+
+    const db = getDb();
+    const exchanges = db.prepare('SELECT * FROM exchanges WHERE session_id = ?').all(sessionId);
+    expect(exchanges).toHaveLength(2);
+  });
+
+  test('upserts exchanges on conflict (session_id, user_timestamp)', () => {
+    const sessionId = upsertSession({ externalId: 'ex-sess-2', project: null, startTime: null, endTime: null, model: null, version: null, customTitle: null });
+    insertExchanges([{
+      sessionId,
+      userMessageUuid: null,
+      userTimestamp: '2026-01-15T10:00:00Z',
+      assistantMessageId: 'msg-1',
+      assistantLastTimestamp: '2026-01-15T10:00:10Z',
+      durationSeconds: 10,
+      userContent: 'first',
+    }]);
+    // Re-insert with updated duration (simulates re-parse)
+    insertExchanges([{
+      sessionId,
+      userMessageUuid: null,
+      userTimestamp: '2026-01-15T10:00:00Z',
+      assistantMessageId: 'msg-1',
+      assistantLastTimestamp: '2026-01-15T10:00:15Z',
+      durationSeconds: 15,
+      userContent: 'first',
+    }]);
+
+    const db = getDb();
+    const exchanges = db.prepare('SELECT * FROM exchanges WHERE session_id = ?').all(sessionId) as Record<string, unknown>[];
+    expect(exchanges).toHaveLength(1);
+    expect(exchanges[0].duration_seconds).toBe(15);
+  });
+
+  test('returns 0 for empty array', () => {
+    expect(insertExchanges([])).toBe(0);
   });
 });
 
@@ -130,7 +197,7 @@ describe('cost calculations', () => {
       version: null,
       customTitle: null,
     });
-    insertMessages([{
+    insertUsageRecords([{
       externalId: `msg-${externalId}`,
       sessionId,
       subagentId: null,
@@ -222,7 +289,7 @@ describe('getSessionStats', () => {
   beforeEach(() => setupTestDb());
   afterEach(() => teardownTestDb());
 
-  test('aggregates tokens across messages in a session', () => {
+  test('aggregates tokens across usage records in a session', () => {
     const sessionId = upsertSession({
       externalId: 'agg-001',
       project: '/test',
@@ -232,7 +299,7 @@ describe('getSessionStats', () => {
       version: null,
       customTitle: null,
     });
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-1', sessionId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 100, cacheReadInputTokens: 200 },
       { externalId: 'msg-2', sessionId, subagentId: null, timestamp: '2026-01-15T10:01:00Z', model: 'claude-sonnet-4', inputTokens: 2000, outputTokens: 800, cacheCreationInputTokens: 300, cacheReadInputTokens: 400 },
     ]);
@@ -244,6 +311,25 @@ describe('getSessionStats', () => {
     expect(stats[0].cacheCreationTokens).toBe(400);
     expect(stats[0].cacheReadTokens).toBe(600);
     expect(stats[0].messageCount).toBe(2);
+  });
+
+  test('includes durationSeconds from exchanges', () => {
+    const sessionId = upsertSession({
+      externalId: 'dur-001',
+      project: null,
+      startTime: '2026-01-15T10:00:00Z',
+      endTime: null,
+      model: null,
+      version: null,
+      customTitle: null,
+    });
+    insertExchanges([
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 30, userContent: null },
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:01:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 45, userContent: null },
+    ]);
+
+    const stats = getSessionStats();
+    expect(stats[0].durationSeconds).toBe(75);
   });
 
   test('filters sessions by date range', () => {
@@ -296,9 +382,9 @@ describe('getDailyStats', () => {
   beforeEach(() => setupTestDb());
   afterEach(() => teardownTestDb());
 
-  test('groups messages by date', () => {
+  test('groups usage records by date', () => {
     const sessionId = upsertSession({ externalId: 'daily-test', project: null, startTime: '2026-01-15T10:00:00Z', endTime: '2026-01-16T10:00:00Z', model: null, version: null, customTitle: null });
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-d1', sessionId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
       { externalId: 'msg-d2', sessionId, subagentId: null, timestamp: '2026-01-16T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 2000, outputTokens: 800, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
@@ -314,7 +400,7 @@ describe('getDailyStats', () => {
 
   test('filters by date range', () => {
     const sessionId = upsertSession({ externalId: 'daily-filter', project: null, startTime: '2026-01-10T10:00:00Z', endTime: '2026-01-20T10:00:00Z', model: null, version: null, customTitle: null });
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-df1', sessionId, subagentId: null, timestamp: '2026-01-10T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
       { externalId: 'msg-df2', sessionId, subagentId: null, timestamp: '2026-01-20T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 2000, outputTokens: 800, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
@@ -333,7 +419,7 @@ describe('getSummary', () => {
     const s1 = upsertSession({ externalId: 'sum-1', project: null, startTime: '2026-01-15T10:00:00Z', endTime: null, model: null, version: null, customTitle: null });
     const s2 = upsertSession({ externalId: 'sum-2', project: null, startTime: '2026-01-16T10:00:00Z', endTime: null, model: null, version: null, customTitle: null });
 
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-s1', sessionId: s1, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 100, cacheReadInputTokens: 200 },
       { externalId: 'msg-s2', sessionId: s2, subagentId: null, timestamp: '2026-01-16T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 2000, outputTokens: 800, cacheCreationInputTokens: 300, cacheReadInputTokens: 400 },
     ]);
@@ -348,9 +434,30 @@ describe('getSummary', () => {
     expect(summary.lastSession).toBe('2026-01-16');
   });
 
+  test('totalHours is computed from exchanges duration_seconds', () => {
+    const s1 = upsertSession({ externalId: 'hrs-1', project: null, startTime: '2026-01-15T10:00:00Z', endTime: '2026-01-15T22:00:00Z', model: null, version: null, customTitle: null });
+
+    // Session has a 12-hour wall-clock span but only 30 minutes of actual exchange time
+    insertExchanges([
+      { sessionId: s1, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 900, userContent: null },
+      { sessionId: s1, userMessageUuid: null, userTimestamp: '2026-01-15T10:15:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 900, userContent: null },
+    ]);
+
+    const summary = getSummary();
+    // 1800 seconds = 0.5 hours
+    expect(summary.totalHours).toBeCloseTo(0.5, 4);
+  });
+
+  test('totalHours is 0 when no exchanges exist', () => {
+    upsertSession({ externalId: 'no-ex', project: null, startTime: '2026-01-15T10:00:00Z', endTime: '2026-01-15T20:00:00Z', model: null, version: null, customTitle: null });
+
+    const summary = getSummary();
+    expect(summary.totalHours).toBe(0);
+  });
+
   test('computes cache savings (costWithoutCache > totalCost when cache_read is used)', () => {
     const sid = upsertSession({ externalId: 'cache-test', project: null, startTime: '2026-01-15T10:00:00Z', endTime: null, model: null, version: null, customTitle: null });
-    insertMessages([{
+    insertUsageRecords([{
       externalId: 'msg-cache', sessionId: sid, subagentId: null,
       timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4',
       inputTokens: 0, outputTokens: 0,
@@ -378,12 +485,12 @@ describe('getSummary', () => {
     const s1 = upsertSession({ externalId: 'sp-1', project: '/proj-a', startTime: '2026-01-15T10:00:00Z', endTime: null, model: null, version: null, customTitle: null });
     const s2 = upsertSession({ externalId: 'sp-2', project: '/proj-b', startTime: '2026-01-15T10:00:00Z', endTime: null, model: null, version: null, customTitle: null });
 
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-sp1', sessionId: s1, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
       { externalId: 'msg-sp2', sessionId: s2, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 2000, outputTokens: 800, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
 
-    const summary = getSummary('/proj-a');
+    const summary = getSummary(undefined, undefined, '/proj-a');
     expect(summary.inputTokens).toBe(1000);
     expect(summary.sessionCount).toBe(1);
   });
@@ -423,11 +530,11 @@ describe('getSubagentsBySessionId', () => {
   beforeEach(() => setupTestDb());
   afterEach(() => teardownTestDb());
 
-  test('returns subagents with aggregated message stats', () => {
+  test('returns subagents with aggregated usage record stats', () => {
     const sessionId = upsertSession({ externalId: 'parent-sa', project: null, startTime: '2026-01-15T10:00:00Z', endTime: null, model: null, version: null, customTitle: null });
     const subId = upsertSubagent('agent-001', sessionId, 'claude-sonnet-4', '2026-01-15T10:01:00Z', '2026-01-15T10:05:00Z');
 
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-sa1', sessionId, subagentId: subId, timestamp: '2026-01-15T10:01:00Z', model: 'claude-sonnet-4', inputTokens: 500, outputTokens: 200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
       { externalId: 'msg-sa2', sessionId, subagentId: subId, timestamp: '2026-01-15T10:02:00Z', model: 'claude-sonnet-4', inputTokens: 600, outputTokens: 300, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
@@ -452,11 +559,11 @@ describe('cleanupOrphanedSubagentSessions', () => {
   beforeEach(() => setupTestDb());
   afterEach(() => teardownTestDb());
 
-  test('removes sessions and messages with agent-* external IDs', () => {
+  test('removes sessions and usage records with agent-* external IDs', () => {
     const orphanId = upsertSession({ externalId: 'agent-orphan', project: null, startTime: null, endTime: null, model: null, version: null, customTitle: null });
     const realId = upsertSession({ externalId: 'real-session', project: null, startTime: null, endTime: null, model: null, version: null, customTitle: null });
 
-    insertMessages([
+    insertUsageRecords([
       { externalId: 'msg-orphan', sessionId: orphanId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 100, outputTokens: 50, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
       { externalId: 'msg-real', sessionId: realId, subagentId: null, timestamp: '2026-01-15T10:00:00Z', model: 'claude-sonnet-4', inputTokens: 100, outputTokens: 50, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
     ]);
@@ -468,7 +575,7 @@ describe('cleanupOrphanedSubagentSessions', () => {
     expect(sessions).toHaveLength(1);
     expect((sessions[0] as Record<string, unknown>).external_id).toBe('real-session');
 
-    const messages = db.prepare('SELECT * FROM messages').all();
-    expect(messages).toHaveLength(1);
+    const records = db.prepare('SELECT * FROM usage_records').all();
+    expect(records).toHaveLength(1);
   });
 });

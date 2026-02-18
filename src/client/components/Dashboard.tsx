@@ -16,6 +16,8 @@ interface Summary {
   totalCostUsd: number
   costWithoutCacheUsd: number
   sessionCount: number
+  messageCount: number
+  totalHours: number
   firstSession: string | null
   lastSession: string | null
 }
@@ -242,7 +244,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error('Sync failed')
       const data = await res.json()
       setSyncStatus(
-        `Imported ${data.messagesImported} messages from ${data.sessionsImported} sessions`,
+        `Imported ${data.usageRecordsImported} usage records from ${data.sessionsImported} sessions`,
       )
       await fetchSummary()
       setRefreshKey((k) => k + 1)

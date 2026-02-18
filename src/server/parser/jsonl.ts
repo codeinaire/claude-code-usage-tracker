@@ -4,13 +4,16 @@ import * as os from 'os';
 import {
   upsertSession,
   upsertSubagent,
-  insertMessages,
+  insertUsageRecords,
+  insertExchanges,
   getSyncState,
   updateSyncState,
-  clearSessionMessagesByExternalId,
+  clearSessionUsageRecordsByExternalId,
+  clearSessionExchangesByExternalId,
   getSessionIdByExternalId,
   cleanupOrphanedSubagentSessions,
-  type Message,
+  type UsageRecord,
+  type Exchange,
 } from '../db/queries.js';
 
 interface Usage {
@@ -31,11 +34,14 @@ interface JsonlLine {
   timestamp?: string;
   version?: string;
   customTitle?: string;
+  isMeta?: boolean;
+  isSidechain?: boolean;
   message?: {
     id?: string;
     role?: string;
     model?: string;
     usage?: Usage;
+    content?: string | Array<{ type?: string; text?: string }>;
   };
   cwd?: string;
   uuid?: string;
@@ -44,8 +50,19 @@ interface JsonlLine {
 
 interface ParseResult {
   sessionExternalId: string;
-  messagesImported: number;
+  usageRecordsImported: number;
+  exchangesImported: number;
   project: string | null;
+}
+
+function extractUserContent(message: JsonlLine['message']): string | null {
+  if (!message) return null;
+  if (typeof message.content === 'string') return message.content;
+  if (Array.isArray(message.content)) {
+    const textPart = message.content.find((c) => c.type === 'text');
+    return textPart?.text || null;
+  }
+  return null;
 }
 
 export function isSubagentFile(filePath: string): boolean {
@@ -102,11 +119,14 @@ export function parseSessionFile(
     startOffset = syncState.lastOffset;
     if (startOffset >= stats.size) {
       // No new data
-      return { sessionExternalId, messagesImported: 0, project };
+      return { sessionExternalId, usageRecordsImported: 0, exchangesImported: 0, project };
     }
   } else {
-    // Full sync - clear existing messages for this session/subagent
-    clearSessionMessagesByExternalId(sessionExternalId);
+    // Full sync - clear existing records for this session/subagent
+    clearSessionUsageRecordsByExternalId(sessionExternalId);
+    if (!isSubagent) {
+      clearSessionExchangesByExternalId(sessionExternalId);
+    }
   }
 
   const content = fs.readFileSync(filePath, 'utf-8');
@@ -119,7 +139,7 @@ export function parseSessionFile(
   let sessionCustomTitle: string | null = null;
 
   // Use a Map to deduplicate by message ID (streaming chunks have same ID)
-  const messageDataMap = new Map<string, {
+  const usageRecordMap = new Map<string, {
     externalId: string;
     timestamp: string;
     model: string | null;
@@ -128,6 +148,17 @@ export function parseSessionFile(
     cacheCreationInputTokens: number;
     cacheReadInputTokens: number;
   }>();
+
+  // Turn tracking: user → assistant turn boundaries for accurate duration
+  interface TurnStart {
+    timestamp: string;
+    uuid: string | null;
+    content: string | null;
+  }
+  let turnStart: TurnStart | null = null;
+  let turnEnd: string | null = null;
+  let lastAssistantMsgId: string | null = null;
+  const exchangesList: Exchange[] = [];
 
   for (const line of lines) {
     try {
@@ -160,6 +191,31 @@ export function parseSessionFile(
         sessionCustomTitle = parsed.customTitle;
       }
 
+      // Turn tracking: detect user→assistant boundaries (main session only, not subagent lines)
+      if (!isSubagent && parsed.type === 'user' && parsed.message?.role === 'user' && !parsed.isMeta && !parsed.isSidechain) {
+        // Flush previous turn if we have both start and end
+        if (turnStart !== null && turnEnd !== null) {
+          const durationSeconds =
+            (new Date(turnEnd).getTime() - new Date(turnStart.timestamp).getTime()) / 1000;
+          exchangesList.push({
+            sessionId: 0, // filled in after session upsert
+            userMessageUuid: turnStart.uuid,
+            userTimestamp: turnStart.timestamp,
+            assistantMessageId: lastAssistantMsgId,
+            assistantLastTimestamp: turnEnd,
+            durationSeconds: durationSeconds >= 0 ? durationSeconds : null,
+            userContent: turnStart.content,
+          });
+        }
+        turnStart = {
+          timestamp: parsed.timestamp || new Date().toISOString(),
+          uuid: parsed.uuid || null,
+          content: extractUserContent(parsed.message),
+        };
+        turnEnd = null;
+        lastAssistantMsgId = null;
+      }
+
       // Extract usage data from assistant messages
       if (parsed.type === 'assistant' && parsed.message?.role === 'assistant') {
         const msg = parsed.message;
@@ -168,7 +224,7 @@ export function parseSessionFile(
             sessionModel = msg.model;
           }
 
-          messageDataMap.set(msg.id, {
+          usageRecordMap.set(msg.id, {
             externalId: msg.id,
             timestamp: parsed.timestamp || new Date().toISOString(),
             model: msg.model || null,
@@ -177,6 +233,12 @@ export function parseSessionFile(
             cacheCreationInputTokens: msg.usage.cache_creation_input_tokens || 0,
             cacheReadInputTokens: msg.usage.cache_read_input_tokens || 0,
           });
+
+          // Track turn end (last assistant chunk wins, same as dedup logic)
+          if (!isSubagent && !parsed.isSidechain) {
+            turnEnd = parsed.timestamp || new Date().toISOString();
+            lastAssistantMsgId = msg.id;
+          }
         }
       }
     } catch {
@@ -185,11 +247,26 @@ export function parseSessionFile(
     }
   }
 
+  // Flush final turn
+  if (!isSubagent && turnStart !== null && turnEnd !== null) {
+    const durationSeconds =
+      (new Date(turnEnd).getTime() - new Date(turnStart.timestamp).getTime()) / 1000;
+    exchangesList.push({
+      sessionId: 0, // filled in after session upsert
+      userMessageUuid: turnStart.uuid,
+      userTimestamp: turnStart.timestamp,
+      assistantMessageId: lastAssistantMsgId,
+      assistantLastTimestamp: turnEnd,
+      durationSeconds: durationSeconds >= 0 ? durationSeconds : null,
+      userContent: turnStart.content,
+    });
+  }
+
   if (isSubagent) {
     // Skip subagent files with zero messages (no API calls / no usage data)
-    if (messageDataMap.size === 0) {
+    if (usageRecordMap.size === 0) {
       updateSyncState(filePath, stats.size);
-      return { sessionExternalId, messagesImported: 0, project };
+      return { sessionExternalId, usageRecordsImported: 0, exchangesImported: 0, project };
     }
 
     // Route into subagents table
@@ -224,25 +301,25 @@ export function parseSessionFile(
       lastTimestamp
     );
 
-    // Messages belong to the parent session but are tagged with the subagent
-    const messages: Message[] = Array.from(messageDataMap.values()).map((data) => ({
+    // Records belong to the parent session but are tagged with the subagent
+    const records: UsageRecord[] = Array.from(usageRecordMap.values()).map((data) => ({
       ...data,
       sessionId: parentSessionId!,
       subagentId,
     }));
 
-    if (messages.length > 0) {
-      insertMessages(messages);
+    if (records.length > 0) {
+      insertUsageRecords(records);
     }
 
     updateSyncState(filePath, stats.size);
-    return { sessionExternalId, messagesImported: messages.length, project };
+    return { sessionExternalId, usageRecordsImported: records.length, exchangesImported: 0, project };
   }
 
   // Skip session files with zero messages (no API calls / no usage data)
-  if (messageDataMap.size === 0) {
+  if (usageRecordMap.size === 0) {
     updateSyncState(filePath, stats.size);
-    return { sessionExternalId, messagesImported: 0, project };
+    return { sessionExternalId, usageRecordsImported: 0, exchangesImported: 0, project };
   }
 
   // Regular session file
@@ -256,20 +333,34 @@ export function parseSessionFile(
     customTitle: sessionCustomTitle,
   });
 
-  const messages: Message[] = Array.from(messageDataMap.values()).map((data) => ({
+  const records: UsageRecord[] = Array.from(usageRecordMap.values()).map((data) => ({
     ...data,
     sessionId,
     subagentId: null,
   }));
 
-  if (messages.length > 0) {
-    insertMessages(messages);
+  if (records.length > 0) {
+    insertUsageRecords(records);
+  }
+
+  // Fill in sessionId for exchanges and insert
+  const exchangesWithSessionId = exchangesList.map((ex) => ({ ...ex, sessionId }));
+  let exchangesImported = 0;
+  if (exchangesWithSessionId.length > 0) {
+    exchangesImported = insertExchanges(exchangesWithSessionId);
+  }
+
+  // Warn if usage records were found but no exchanges detected (format change indicator)
+  if (records.length > 0 && exchangesWithSessionId.length === 0) {
+    console.warn(
+      `[parser] No exchanges detected in ${filePath} despite ${records.length} usage records — JSONL format may have changed`
+    );
   }
 
   updateSyncState(filePath, stats.size);
 
   // After parsing a main session file, also sync any subagent files
-  let subagentMessages = 0;
+  let subagentUsageRecords = 0;
   const subagentDir = path.join(path.dirname(filePath), sessionExternalId, 'subagents');
   if (fs.existsSync(subagentDir)) {
     const subagentFiles = fs.readdirSync(subagentDir)
@@ -279,14 +370,19 @@ export function parseSessionFile(
     for (const subFile of subagentFiles) {
       try {
         const subResult = parseSessionFile(subFile, incrementalSync);
-        subagentMessages += subResult.messagesImported;
+        subagentUsageRecords += subResult.usageRecordsImported;
       } catch (error) {
         console.error(`Error parsing subagent file ${subFile}:`, error);
       }
     }
   }
 
-  return { sessionExternalId, messagesImported: messages.length + subagentMessages, project };
+  return {
+    sessionExternalId,
+    usageRecordsImported: records.length + subagentUsageRecords,
+    exchangesImported,
+    project,
+  };
 }
 
 export function findAllSessionFiles(): string[] {
@@ -315,7 +411,7 @@ export function findAllSessionFiles(): string[] {
 
 export function syncAllSessions(): {
   sessionsImported: number;
-  messagesImported: number;
+  usageRecordsImported: number;
 } {
   // Clean up orphaned session entries that were previously created for subagent files
   cleanupOrphanedSubagentSessions();
@@ -329,14 +425,14 @@ export function syncAllSessions(): {
     return aIsSub - bIsSub;
   });
 
-  let totalMessages = 0;
+  let totalUsageRecords = 0;
   let totalSessions = 0;
 
   for (const file of sorted) {
     try {
       const result = parseSessionFile(file, false);
-      if (result.messagesImported > 0) {
-        totalMessages += result.messagesImported;
+      if (result.usageRecordsImported > 0) {
+        totalUsageRecords += result.usageRecordsImported;
         totalSessions++;
       }
     } catch (error) {
@@ -344,5 +440,5 @@ export function syncAllSessions(): {
     }
   }
 
-  return { sessionsImported: totalSessions, messagesImported: totalMessages };
+  return { sessionsImported: totalSessions, usageRecordsImported: totalUsageRecords };
 }
