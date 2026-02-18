@@ -1,5 +1,7 @@
 import { getDb } from './schema.js';
 
+const GAP_THRESHOLD_SECONDS = 1800;
+
 // Per-message cost calculation in SQL
 // Pricing per 1M tokens (USD) - https://claude.com/pricing
 // Cache write = 125% of base input, Cache read = 10% of base input
@@ -257,6 +259,7 @@ export interface SessionStats {
   messageCount: number;
   subagentCount: number;
   durationSeconds: number;
+  claudeActiveSeconds: number;
 }
 
 export function getSessionStats(from?: string, to?: string, project?: string, customTitle?: string): SessionStats[] {
@@ -276,7 +279,28 @@ export function getSessionStats(from?: string, to?: string, project?: string, cu
       COUNT(m.id) as messageCount,
       COALESCE(SUM(${MESSAGE_COST_SQL}), 0) as estimatedCostUsd,
       (SELECT COUNT(*) FROM subagents sa WHERE sa.session_id = s.id) as subagentCount,
-      (SELECT COALESCE(SUM(duration_seconds), 0) FROM exchanges WHERE session_id = s.id) as durationSeconds
+      (
+        SELECT COALESCE(SUM(bsec), 0)
+        FROM (
+          SELECT (julianday(MAX(a_ts)) - julianday(MIN(u_ts))) * 86400 as bsec
+          FROM (
+            SELECT user_timestamp as u_ts, assistant_last_timestamp as a_ts,
+              SUM(is_new_block) OVER (ORDER BY user_timestamp) as bid
+            FROM (
+              SELECT user_timestamp, assistant_last_timestamp,
+                CASE
+                  WHEN LAG(assistant_last_timestamp) OVER (ORDER BY user_timestamp) IS NULL
+                    OR (julianday(user_timestamp) - julianday(LAG(assistant_last_timestamp) OVER (ORDER BY user_timestamp))) * 86400 > ${GAP_THRESHOLD_SECONDS}
+                  THEN 1 ELSE 0
+                END as is_new_block
+              FROM exchanges
+              WHERE session_id = s.id AND assistant_last_timestamp IS NOT NULL
+            )
+          )
+          GROUP BY bid
+        )
+      ) as durationSeconds,
+      (SELECT COALESCE(SUM(duration_seconds), 0) FROM exchanges WHERE session_id = s.id) as claudeActiveSeconds
     FROM sessions s
     LEFT JOIN usage_records m ON s.id = m.session_id
   `;
@@ -377,6 +401,7 @@ export interface Summary {
   sessionCount: number;
   messageCount: number;
   totalHours: number;
+  claudeActiveHours: number;
   firstSession: string | null;
   lastSession: string | null;
 }
@@ -467,22 +492,51 @@ export function getSummary(from?: string, to?: string, project?: string, customT
     lastSession: string | null;
   };
 
-  // Total hours from exchanges (accurate active time, not wall-clock duration)
+  // Total active hours via gap-threshold block-based calculation
   const hoursResult = db
     .prepare(
       `
-    SELECT COALESCE(SUM(e.duration_seconds), 0) / 3600.0 as totalHours
+    WITH ordered AS (
+      SELECT e.session_id, e.user_timestamp, e.assistant_last_timestamp,
+        LAG(e.assistant_last_timestamp) OVER (PARTITION BY e.session_id ORDER BY e.user_timestamp) as prev_end
+      FROM exchanges e
+      JOIN sessions s ON s.id = e.session_id
+      WHERE e.assistant_last_timestamp IS NOT NULL AND ${sessionConditions.join(' AND ')}
+    ),
+    block_marked AS (
+      SELECT session_id, user_timestamp, assistant_last_timestamp,
+        SUM(CASE
+          WHEN prev_end IS NULL OR (julianday(user_timestamp) - julianday(prev_end)) * 86400 > ${GAP_THRESHOLD_SECONDS}
+          THEN 1 ELSE 0
+        END) OVER (PARTITION BY session_id ORDER BY user_timestamp) as block_id
+      FROM ordered
+    ),
+    blocks AS (
+      SELECT (julianday(MAX(assistant_last_timestamp)) - julianday(MIN(user_timestamp))) * 86400 as block_seconds
+      FROM block_marked GROUP BY session_id, block_id
+    )
+    SELECT COALESCE(SUM(block_seconds), 0) / 3600.0 as totalHours
+    FROM blocks
+  `
+    )
+    .get(...sessionParams) as { totalHours: number };
+
+  const claudeActiveResult = db
+    .prepare(
+      `
+    SELECT COALESCE(SUM(e.duration_seconds), 0) / 3600.0 as claudeActiveHours
     FROM exchanges e
     JOIN sessions s ON s.id = e.session_id
     WHERE ${sessionConditions.join(' AND ')}
   `
     )
-    .get(...sessionParams) as { totalHours: number };
+    .get(...sessionParams) as { claudeActiveHours: number };
 
   return {
     ...stats,
     sessionCount: sessionStats.sessionCount,
     totalHours: hoursResult.totalHours,
+    claudeActiveHours: claudeActiveResult.claudeActiveHours,
     firstSession: sessionStats.firstSession
       ? sessionStats.firstSession.split('T')[0]
       : null,

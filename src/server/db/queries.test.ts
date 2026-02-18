@@ -313,7 +313,7 @@ describe('getSessionStats', () => {
     expect(stats[0].messageCount).toBe(2);
   });
 
-  test('includes durationSeconds from exchanges', () => {
+  test('includes durationSeconds (block-based) and claudeActiveSeconds from exchanges', () => {
     const sessionId = upsertSession({
       externalId: 'dur-001',
       project: null,
@@ -323,13 +323,60 @@ describe('getSessionStats', () => {
       version: null,
       customTitle: null,
     });
+    // Two exchanges within same block (gap 30s < 1800s threshold)
+    // Block: MAX(assistant_ts)=10:01:45 - MIN(user_ts)=10:00:00 = 105s
     insertExchanges([
-      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 30, userContent: null },
-      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:01:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 45, userContent: null },
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:00:30Z', durationSeconds: 30, userContent: null },
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:01:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:01:45Z', durationSeconds: 45, userContent: null },
     ]);
 
     const stats = getSessionStats();
-    expect(stats[0].durationSeconds).toBe(75);
+    expect(stats[0].durationSeconds).toBeCloseTo(105, 0);
+    expect(stats[0].claudeActiveSeconds).toBe(75);
+  });
+
+  test('gap > threshold creates two separate blocks', () => {
+    const sessionId = upsertSession({
+      externalId: 'gap-big',
+      project: null,
+      startTime: '2026-01-15T10:00:00Z',
+      endTime: null,
+      model: null,
+      version: null,
+      customTitle: null,
+    });
+    // Gap between exchanges: 10:00:30 → 10:31:00 = 30.5 min > 30 min threshold → two blocks
+    insertExchanges([
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:00:30Z', durationSeconds: 30, userContent: null },
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:31:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:31:30Z', durationSeconds: 30, userContent: null },
+    ]);
+
+    const stats = getSessionStats();
+    // Two blocks each 30s → total 60s
+    expect(stats[0].durationSeconds).toBeCloseTo(60, 0);
+    expect(stats[0].claudeActiveSeconds).toBe(60);
+  });
+
+  test('gap < threshold creates one block spanning both exchanges', () => {
+    const sessionId = upsertSession({
+      externalId: 'gap-small',
+      project: null,
+      startTime: '2026-01-15T10:00:00Z',
+      endTime: null,
+      model: null,
+      version: null,
+      customTitle: null,
+    });
+    // Gap between exchanges: 10:00:30 → 10:29:30 = 29 min < 30 min threshold → one block
+    insertExchanges([
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:00:30Z', durationSeconds: 30, userContent: null },
+      { sessionId, userMessageUuid: null, userTimestamp: '2026-01-15T10:29:30Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:30:00Z', durationSeconds: 30, userContent: null },
+    ]);
+
+    const stats = getSessionStats();
+    // One block: 10:30:00 - 10:00:00 = 1800s
+    expect(stats[0].durationSeconds).toBeCloseTo(1800, 0);
+    expect(stats[0].claudeActiveSeconds).toBe(60);
   });
 
   test('filters sessions by date range', () => {
@@ -434,18 +481,21 @@ describe('getSummary', () => {
     expect(summary.lastSession).toBe('2026-01-16');
   });
 
-  test('totalHours is computed from exchanges duration_seconds', () => {
+  test('totalHours is computed via block-based gap threshold', () => {
     const s1 = upsertSession({ externalId: 'hrs-1', project: null, startTime: '2026-01-15T10:00:00Z', endTime: '2026-01-15T22:00:00Z', model: null, version: null, customTitle: null });
 
-    // Session has a 12-hour wall-clock span but only 30 minutes of actual exchange time
+    // Two back-to-back exchanges in the same block (0s gap < threshold)
+    // Block: MIN(user_ts)=10:00:00, MAX(assistant_ts)=10:30:00 → 1800s = 0.5h
     insertExchanges([
-      { sessionId: s1, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 900, userContent: null },
-      { sessionId: s1, userMessageUuid: null, userTimestamp: '2026-01-15T10:15:00Z', assistantMessageId: null, assistantLastTimestamp: null, durationSeconds: 900, userContent: null },
+      { sessionId: s1, userMessageUuid: null, userTimestamp: '2026-01-15T10:00:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:15:00Z', durationSeconds: 900, userContent: null },
+      { sessionId: s1, userMessageUuid: null, userTimestamp: '2026-01-15T10:15:00Z', assistantMessageId: null, assistantLastTimestamp: '2026-01-15T10:30:00Z', durationSeconds: 900, userContent: null },
     ]);
 
     const summary = getSummary();
-    // 1800 seconds = 0.5 hours
+    // Block duration = 1800s = 0.5h
     expect(summary.totalHours).toBeCloseTo(0.5, 4);
+    // Claude active = (900 + 900) / 3600 = 0.5h
+    expect(summary.claudeActiveHours).toBeCloseTo(0.5, 4);
   });
 
   test('totalHours is 0 when no exchanges exist', () => {
@@ -453,6 +503,7 @@ describe('getSummary', () => {
 
     const summary = getSummary();
     expect(summary.totalHours).toBe(0);
+    expect(summary.claudeActiveHours).toBe(0);
   });
 
   test('computes cache savings (costWithoutCache > totalCost when cache_read is used)', () => {

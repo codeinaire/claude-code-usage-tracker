@@ -15,6 +15,7 @@ interface Session {
   messageCount: number;
   subagentCount: number;
   durationSeconds: number;
+  claudeActiveSeconds: number;
 }
 
 interface Subagent {
@@ -298,6 +299,12 @@ function getProjectName(project: string | null): string {
   return parts.length > 0 ? parts[parts.length - 1] : '-';
 }
 
+function InfoIcon({ title }: { title: string }) {
+  return (
+    <span style={{ cursor: 'help', marginLeft: '3px', color: '#9ca3af' }} title={title}>ⓘ</span>
+  );
+}
+
 export default function SessionList({ dateRange, project, customTitle, refreshKey }: SessionListProps) {
   const [data, setData] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
@@ -440,9 +447,9 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
             <th style={{ ...styles.th, width: '12%' }}>Session</th>
             <th style={{ ...styles.th, width: '14%' }}>Title</th>
             <th style={{ ...styles.th, width: '10%' }}>Project</th>
-            <th style={styles.th}>Started</th>
-            <th style={styles.th}>Ended</th>
-            <th style={{ ...styles.th, textAlign: 'right' }}>Duration</th>
+            <th style={styles.th}>Started<InfoIcon title="When this Claude Code session was opened (timestamp of the first message)" /></th>
+            <th style={styles.th}>Ended<InfoIcon title="When this Claude Code session was closed (timestamp of the last message)" /></th>
+            <th style={{ ...styles.th, textAlign: 'right' }}>Duration<InfoIcon title="Total active engagement time, excluding gaps longer than 30 minutes. Breakdown shows Claude's response time vs your reading and typing time." /></th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Input</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cache Write</th>
             <th style={{ ...styles.th, textAlign: 'right' }}>Cache Read</th>
@@ -512,7 +519,16 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                 </td>
                 <td style={styles.td} title={formatFullDateTime(session.startTime)}>{formatDateTime(session.startTime)}</td>
                 <td style={styles.td} title={formatFullDateTime(session.endTime)}>{formatDateTime(session.endTime)}</td>
-                <td style={styles.tdRight}>{formatDurationSeconds(session.durationSeconds)}</td>
+                <td style={styles.tdRight}>
+                  {formatDurationSeconds(session.durationSeconds)}
+                  {session.claudeActiveSeconds > 0 && (
+                    <div style={{ fontSize: '11px', color: '#888' }}>
+                      Claude {formatDurationSeconds(session.claudeActiveSeconds)}
+                      {' · '}
+                      You {formatDurationSeconds(session.durationSeconds - session.claudeActiveSeconds)}
+                    </div>
+                  )}
+                </td>
                 <td style={styles.tdRight}>{formatNumber(session.inputTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheCreationTokens)}</td>
                 <td style={styles.tdRight}>{formatNumber(session.cacheReadTokens)}</td>
