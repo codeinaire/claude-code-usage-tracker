@@ -315,6 +315,8 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
   const [loadingSubagents, setLoadingSubagents] = useState<Set<number>>(new Set());
   const [editingTitleId, setEditingTitleId] = useState<number | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [editingProjectValue, setEditingProjectValue] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopyId = (externalId: string, e: React.MouseEvent) => {
@@ -340,6 +342,23 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
       console.error('Failed to update title:', err);
     }
     setEditingTitleId(null);
+  };
+
+  const saveProject = async (sessionId: number) => {
+    const trimmed = editingProjectValue.trim();
+    try {
+      await fetch(`/api/stats/sessions/${sessionId}/project`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: trimmed || null }),
+      });
+      setData((prev) =>
+        prev.map((s) => s.id === sessionId ? { ...s, project: trimmed || null } : s)
+      );
+    } catch (err) {
+      console.error('Failed to update project:', err);
+    }
+    setEditingProjectId(null);
   };
 
   const handleDelete = async (sessionId: number, e: React.MouseEvent) => {
@@ -512,10 +531,31 @@ export default function SessionList({ dateRange, project, customTitle, refreshKe
                     </span>
                   )}
                 </td>
-                <td style={styles.td}>
-                  <span style={styles.project} title={session.project || undefined}>
-                    {getProjectName(session.project)}
-                  </span>
+                <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                  {editingProjectId === session.id ? (
+                    <input
+                      style={styles.titleInput}
+                      value={editingProjectValue}
+                      onChange={(e) => setEditingProjectValue(e.target.value)}
+                      onBlur={() => saveProject(session.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveProject(session.id);
+                        if (e.key === 'Escape') setEditingProjectId(null);
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    <span
+                      style={session.project ? styles.editableTitle : styles.editableTitleEmpty}
+                      title={session.project ? session.project : 'Click to set project'}
+                      onClick={() => {
+                        setEditingProjectId(session.id);
+                        setEditingProjectValue(session.project || '');
+                      }}
+                    >
+                      {session.project ? getProjectName(session.project) : 'Set project'}
+                    </span>
+                  )}
                 </td>
                 <td style={styles.td} title={formatFullDateTime(session.startTime)}>{formatDateTime(session.startTime)}</td>
                 <td style={styles.td} title={formatFullDateTime(session.endTime)}>{formatDateTime(session.endTime)}</td>

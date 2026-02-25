@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { getSessionStats, getDailyStats, getSummary, getMonthlyCosts, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle, deleteSession } from '../db/queries.js';
+import { getSessionStats, getDailyStats, getSummary, getMonthlyCosts, getSubagentsBySessionId, getProjects, getCustomTitles, updateSessionCustomTitle, updateSessionProject, deleteSession } from '../db/queries.js';
 
 const router = Router();
 
@@ -117,6 +117,26 @@ router.patch('/sessions/:id/custom-title', (req: Request, res: Response) => {
     res.json({ ok: true, customTitle: title });
   } catch (error) {
     console.error('Update custom title error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// PATCH /api/stats/sessions/:id/project - Update a session's project
+router.patch('/sessions/:id/project', (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.id as string, 10);
+    if (isNaN(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+    const { project } = req.body as { project?: string | null };
+    const value = project?.trim() || null;
+    updateSessionProject(sessionId, value);
+    res.json({ ok: true, project: value });
+  } catch (error) {
+    console.error('Update project error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
     });
