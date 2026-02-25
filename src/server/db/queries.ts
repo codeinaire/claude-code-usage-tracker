@@ -711,6 +711,11 @@ export function updateSessionCustomTitle(sessionId: number, customTitle: string 
   db.prepare('UPDATE sessions SET custom_title = ? WHERE id = ?').run(customTitle, sessionId);
 }
 
+export function updateSessionProject(sessionId: number, project: string | null): void {
+  const db = getDb();
+  db.prepare('UPDATE sessions SET project = ? WHERE id = ?').run(project, sessionId);
+}
+
 export function deleteSession(sessionId: number): void {
   const db = getDb();
   const del = db.transaction(() => {
