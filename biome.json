@@ -1,0 +1,81 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.9/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": ["**", "!!**/dist"]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "space",
+		"indentWidth": 2
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"a11y": "on",
+			"complexity": "on",
+			"correctness": "on",
+			"performance": "on",
+			"security": "on",
+			"style": "on",
+			"suspicious": "on"
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["src/**"],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"noNodejsModules": "off",
+						"useQwikValidLexicalScope": "off"
+					},
+					"style": {
+						"noJsxLiterals": "off",
+						"noDefaultExport": "off"
+					},
+					"suspicious": {
+						"noConsole": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["**/*.test.ts", "**/*.test.tsx"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noMagicNumbers": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["**/constants.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noMagicNumbers": "off"
+					}
+				}
+			}
+		}
+	],
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "single"
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
+}
