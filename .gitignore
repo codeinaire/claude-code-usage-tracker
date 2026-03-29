@@ -4,4 +4,7 @@ data/
 *.db
 .DS_Store
 *.tsbuildinfo
+*.d.ts
+*.d.ts.map
+src/**/*.js
 .claude

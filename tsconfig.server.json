@@ -7,7 +7,7 @@
 
     /* Output */
     "outDir": "dist/server",
-    "rootDir": "src/server",
+    "rootDir": "src",
 
     /* Module strictness */
     "verbatimModuleSyntax": true,
@@ -20,5 +20,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src/server/**/*"]
+  "include": ["src/server/**/*", "src/shared/**/*"]
 }
